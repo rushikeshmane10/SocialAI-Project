@@ -171,4 +171,5 @@ users (id PK)
 
 More operational detail: [`backend/README.md`](backend/README.md).
 #   s o c i a l A I  
+ #   s o c i a A I  
  
