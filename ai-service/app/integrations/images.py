@@ -17,6 +17,11 @@ class ImageGenerationError(Exception):
 async def generate_image_url(prompt: str) -> str:
     """Call OpenAI Images API; return a temporary HTTPS URL when available."""
     settings = get_settings()
+    if not (settings.openai_api_key or "").strip():
+        raise ImageGenerationError(
+            "OPENAI_NOT_CONFIGURED",
+            "Image generation is not configured (missing OpenAI API key).",
+        )
     client = AsyncOpenAI(
         api_key=settings.openai_api_key,
         timeout=settings.openai_image_timeout_seconds,

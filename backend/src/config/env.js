@@ -20,11 +20,33 @@ const envSchema = z
       .min(5000)
       .max(180_000)
       .default(120_000),
+    JSON_BODY_LIMIT: z.string().default("1mb"),
     FRONTEND_ORIGIN: z.string().default("http://localhost:5173"),
+    JWT_SECRET: z.string().min(1).default("dev-jwt-secret"),
+    SOCKET_BYPASS_JWT: z
+      .string()
+      .optional()
+      .transform((s) => {
+        if (s === undefined) return false;
+        const lower = s.toLowerCase();
+        return lower === "true" || lower === "1" || lower === "yes";
+      }),
+    SOCKET_BYPASS_SECRET: z.string().optional(),
     TWITTER_API_KEY: z.string().optional(),
     TWITTER_API_SECRET: z.string().optional(),
     TWITTER_ACCESS_TOKEN: z.string().optional(),
     TWITTER_ACCESS_SECRET: z.string().optional(),
+    COMPOSIO_API_KEY: z.string().optional(),
+    // TEST ONLY: entity id for /test/linkedin-image-post.
+    COMPOSIO_ENTITY_ID: z.string().optional(),
+    /** Optional override when LINKEDIN_GET_MY_INFO returns an unexpected shape (dev only). */
+    COMPOSIO_LINKEDIN_AUTHOR_URN: z.string().optional(),
+    /** Max decoded JPEG size (bytes) before sending to Composio LinkedIn post. */
+    COMPOSIO_LINKEDIN_IMAGE_MAX_BYTES: z.coerce.number().min(50_000).max(5_000_000).default(900_000),
+    /** Max longest edge (px) after resize for LinkedIn post images. */
+    COMPOSIO_LINKEDIN_IMAGE_MAX_EDGE: z.coerce.number().min(256).max(4096).default(1600),
+    /** Initial JPEG quality (1–100) for LinkedIn image compression; lowered in a loop if over budget. */
+    COMPOSIO_LINKEDIN_IMAGE_JPEG_QUALITY_START: z.coerce.number().min(40).max(100).default(82),
   })
   .superRefine((data, ctx) => {
     if (data.NODE_ENV === "production") {
@@ -66,4 +88,8 @@ export function twitterCredentialsConfigured() {
       env.TWITTER_ACCESS_TOKEN &&
       env.TWITTER_ACCESS_SECRET,
   );
+}
+
+export function composioConfigured() {
+  return Boolean(env.COMPOSIO_API_KEY);
 }

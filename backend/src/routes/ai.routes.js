@@ -1,5 +1,9 @@
 import { Router } from "express";
-import { generateTweetHandlerLegacy, generateTweetHandlerPersist } from "../controllers/ai.controller.js";
+import {
+  generateCompleteCallbackHandler,
+  generateTweetHandlerLegacy,
+  generateTweetHandlerPersist,
+} from "../controllers/ai.controller.js";
 import { asyncHandler } from "../middlewares/asyncHandler.js";
 import { requireUserId } from "../middlewares/authenticate.js";
 
@@ -10,5 +14,6 @@ export function createAiRouter(isDatabaseEnabled) {
   } else {
     r.post("/ai/generate", asyncHandler(generateTweetHandlerLegacy));
   }
+  r.post("/ai/callback/generate-complete", asyncHandler(generateCompleteCallbackHandler));
   return r;
 }

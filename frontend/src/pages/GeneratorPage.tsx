@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useCallback, useState } from "react";
+import { publishPost } from "../api/client";
 import { generateMockPosts, selectPostVariation } from "../api/generate";
-import { postJson } from "../api/client";
 import { AppNavRail } from "../components/AppNavRail";
 import { SatisfactionPrompt } from "../components/SatisfactionPrompt";
 import { ThemeToggle } from "../components/ThemeToggle";
@@ -8,15 +8,14 @@ import { TopicForm } from "../components/TopicForm";
 import { VariationPickerModal } from "../components/VariationPickerModal";
 import { StatusBanner } from "../components/StatusBanner";
 import { TweetPreview } from "../components/TweetPreview";
-import { DUMMY_TWEET_TEXT } from "../config/dummyTweet";
-import type { PostVariation } from "../types/generate";
-
-type PostResponse = { tweetId: string; url: string };
+import { useGenerationSocket } from "../hooks/useGenerationSocket";
+import type { GenerationLifecycleEvent, PostVariation } from "../types/generate";
+import { DEFAULT_LLM_SELECTION, labelForLlmSelection, type LlmSelection } from "../config/llmModels";
 
 type PostPhase = "idle" | "posting" | "done";
 
 export function GeneratorPage() {
-  const [draft, setDraft] = useState(DUMMY_TWEET_TEXT);
+  const [draft, setDraft] = useState("");
   const [phase, setPhase] = useState<PostPhase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [successUrl, setSuccessUrl] = useState<string | null>(null);
@@ -29,92 +28,88 @@ export function GeneratorPage() {
   const [variations, setVariations] = useState<PostVariation[]>([]);
   const [variationModalOpen, setVariationModalOpen] = useState(false);
   const [readyToPost, setReadyToPost] = useState(false);
-  const [pickBusy, setPickBusy] = useState(false);
   const [pickErr, setPickErr] = useState<string | null>(null);
   const [pickOk, setPickOk] = useState<string | null>(null);
   const [surveyPostId, setSurveyPostId] = useState<string | null>(null);
   const [reworkBusy, setReworkBusy] = useState(false);
+  const [pickBusy, setPickBusy] = useState(false);
+  const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
+  const [waitingForGeneration, setWaitingForGeneration] = useState(false);
+  const [llmSelection, setLlmSelection] = useState<LlmSelection>(DEFAULT_LLM_SELECTION);
 
   const loading = phase === "posting";
 
-  const canPost = useMemo(() => {
-    if (!draft.trim()) return false;
-    return [...draft].length <= 280;
-  }, [draft]);
+  const onSocketError = useCallback((message: string) => {
+    setWaitingForGeneration(false);
+    setPendingRequestId(null);
+    setPickErr(message);
+  }, []);
 
-  function closeVariationModal() {
-    setVariationModalOpen(false);
-    setVariations([]);
-    setPostId(null);
-    setPickErr(null);
-    setPickBusy(false);
-  }
+  const onGenerationEvent = useCallback((payload: GenerationLifecycleEvent) => {
+    setWaitingForGeneration(false);
+    setPendingRequestId(null);
+    if (payload.status === "failed") {
+      setPickErr(payload.error.message || "Generation failed");
+      return;
+    }
+    const nextVariations = Array.isArray(payload.result?.variations) ? payload.result.variations : [];
+    if (nextVariations.length < 2) {
+      setPickErr("Generation completed but variations were missing.");
+      return;
+    }
+    const sourcePostId = payload.result.postId ?? null;
+    if (!sourcePostId) {
+      setPickErr("Draft persistence is not ready yet. Please wait and try again.");
+    }
+    setVariations(
+      nextVariations.slice(0, 2).map((v) => ({
+        ...v,
+        sourcePostId,
+        sourceVariationId: v.variation_id,
+      })),
+    );
+    setPostId(sourcePostId);
+    setVariationModalOpen(true);
+    setPickOk(
+      sourcePostId
+        ? "Two drafts generated. Pick one option to load into the composer."
+        : "Two drafts generated. Waiting for persisted post id before selection is allowed.",
+    );
+  }, []);
+
+  useGenerationSocket({
+    requestId: pendingRequestId,
+    onEvent: onGenerationEvent,
+    onSocketError,
+  });
 
   async function onGenerateAi() {
     setGenErr(null);
-    setPickOk(null);
     setPickErr(null);
+    setPickOk(null);
     setSurveyPostId(null);
     setReadyToPost(false);
-    setVariationModalOpen(false);
     setGenBusy(true);
     try {
       const topic = aiTopic.trim();
-      const selectedTones = aiTones.slice(0, 2);
-      const toneRequests = selectedTones.length > 0 ? selectedTones : [""];
-
-      const settled = await Promise.allSettled(
-        toneRequests.map((tone) => generateMockPosts({ topic, tone })),
-      );
-      const fulfilled = settled
-        .map((item, idx) => ({ item, tone: toneRequests[idx] }))
-        .filter((x): x is { item: PromiseFulfilledResult<Awaited<ReturnType<typeof generateMockPosts>>>; tone: string } =>
-          x.item.status === "fulfilled",
-        );
-
-      if (fulfilled.length === 0) {
-        const firstRejected = settled.find(
-          (x): x is PromiseRejectedResult => x.status === "rejected",
-        );
-        throw (
-          firstRejected?.reason ??
-          new Error("Generate failed for all selected tones")
-        );
+      const tones = aiTones.slice(0, 2).map((t) => t.trim()).filter(Boolean);
+      if (tones.length !== 2) {
+        throw new Error("Please select exactly 2 tones to generate two drafts.");
       }
-
-      const nextVariations: PostVariation[] =
-        toneRequests.length === 1
-          ? fulfilled[0].item.value.variations.map((v) => ({
-              ...v,
-              sourcePostId: fulfilled[0].item.value.postId,
-              sourceVariationId: v.variation_id === 2 ? 2 : 1,
-            }))
-          : fulfilled.slice(0, 2).map(({ item, tone }, idx) => {
-              const preferred = item.value.variations.find((v) => v.variation_id === 1) ?? item.value.variations[0];
-              return {
-                ...preferred,
-                variation_id: idx + 1,
-                tone_applied: tone,
-                sourcePostId: item.value.postId,
-                sourceVariationId: preferred.variation_id === 2 ? 2 : 1,
-              };
-            });
-
-      setVariations(nextVariations);
-      setPostId(toneRequests.length === 1 ? fulfilled[0].item.value.postId : null);
-      if (nextVariations.length > 0) {
-        setVariationModalOpen(true);
-      }
-      if (toneRequests.length > 1 && fulfilled.length < toneRequests.length) {
-        setGenErr("Some tones failed to generate. Showing the drafts that succeeded.");
-      } else if (!nextVariations.some((v) => Boolean(v.sourcePostId ?? null))) {
-        setGenErr("Drafts are not saved without a database. You can still read the variations below.");
-      }
-    } catch (e) {
-      setGenErr(e instanceof Error ? e.message : "Generate failed");
+      const res = await generateMockPosts({
+        topic,
+        tones: [tones[0], tones[1]],
+        modelProvider: llmSelection.modelProvider,
+        modelName: llmSelection.modelName,
+      });
       setVariations([]);
       setPostId(null);
       setVariationModalOpen(false);
+      setPickOk(`${res.message} Request id: ${res.requestId}`);
+      setPendingRequestId(res.requestId);
+      setWaitingForGeneration(true);
+    } catch (e) {
+      setGenErr(e instanceof Error ? e.message : "Generate failed");
     } finally {
       setGenBusy(false);
     }
@@ -124,67 +119,63 @@ export function GeneratorPage() {
     setGenErr(null);
     setPickErr(null);
     setReworkBusy(true);
-    const sourcePostId = postId ?? undefined;
     try {
+      const tones =
+        aiTones.length >= 2
+          ? [aiTones[0], aiTones[1]]
+          : variations
+              .slice(0, 2)
+              .map((x) => x.tone_applied)
+              .filter(Boolean);
+      if (tones.length !== 2) {
+        throw new Error("Please keep two tones selected before regenerating.");
+      }
       const res = await generateMockPosts({
         topic: aiTopic.trim(),
-        tone: v.tone_applied?.trim() ?? "",
+        tones: [tones[0], tones[1]],
         reworkBaseText: v.text,
         reworkInstructions: instructions,
-        sourcePostId: v.sourcePostId ?? sourcePostId,
-        sourceVariationId: v.sourceVariationId ?? (v.variation_id === 2 ? 2 : 1),
+        sourcePostId: v.sourcePostId ?? postId ?? undefined,
+        sourceVariationId: v.variation_id,
+        modelProvider: llmSelection.modelProvider,
+        modelName: llmSelection.modelName,
       });
-      setVariations(
-        res.variations.map((next) => ({
-          ...next,
-          sourcePostId: res.postId,
-          sourceVariationId: next.variation_id === 2 ? 2 : 1,
-        })),
-      );
-      setPostId(res.postId);
-      if (!res.postId) {
-        setGenErr("Drafts are not saved without a database. You can still read the variations below.");
-      }
+      setVariations([]);
+      setPostId(null);
+      setVariationModalOpen(false);
+      setPickOk(`${res.message} Request id: ${res.requestId}`);
+      setPendingRequestId(res.requestId);
+      setWaitingForGeneration(true);
     } catch (e) {
-      setGenErr(e instanceof Error ? e.message : "Rework failed");
+      setPickErr(e instanceof Error ? e.message : "Rework failed");
     } finally {
       setReworkBusy(false);
     }
   }
 
   async function onPickVariation(v: PostVariation) {
-    const sourcePostId = v.sourcePostId ?? postId;
-    const sourceVariationId = v.sourceVariationId ?? (v.variation_id === 2 ? 2 : 1);
-    if (!sourcePostId) {
-      setDraft(v.text.trim());
-      setReadyToPost(true);
-      setVariationModalOpen(false);
-      setPickOk("Variation loaded. You can edit below, then post to X.");
-      setAiTopic("");
-      setAiTones([]);
-      setVariations([]);
-      return;
-    }
     setPickErr(null);
     setPickOk(null);
-    setSurveyPostId(null);
     setPickBusy(true);
     try {
-      const res = await selectPostVariation(sourcePostId, {
-        variation_id: sourceVariationId,
-        selected_text: v.text,
+      const sourceId = v.sourcePostId ?? postId ?? null;
+      if (!sourceId) {
+        throw new Error("Generated post id is missing. Regenerate and try again.");
+      }
+      await selectPostVariation(sourceId, {
+        variation_id: v.variation_id,
+        selected_text: v.text.trim(),
       });
       setDraft(v.text.trim());
       setReadyToPost(true);
       setVariationModalOpen(false);
-      setSurveyPostId(res.postId);
-      setPickOk("Variation saved. You can edit below, then post to X.");
-      setAiTopic("");
-      setAiTones([]);
+      setSurveyPostId(sourceId);
+      setPickOk(`Loaded ${v.tone_applied} option. Selection saved. You can now post.`);
       setVariations([]);
-      setPostId(null);
+      setPostId(sourceId);
     } catch (e) {
-      setPickErr(e instanceof Error ? e.message : "Could not save pick");
+      setReadyToPost(false);
+      setPickErr(e instanceof Error ? e.message : "Could not save selected variation");
     } finally {
       setPickBusy(false);
     }
@@ -193,10 +184,14 @@ export function GeneratorPage() {
   async function onPost() {
     setError(null);
     setSuccessUrl(null);
+    if (!readyToPost || !postId) {
+      setError("Select an AI variation first before posting.");
+      return;
+    }
     setPhase("posting");
     try {
-      const res = await postJson<PostResponse>("/post/tweet", { text: draft.trim() });
-      setSuccessUrl(res.url);
+      await publishPost(postId, "linkedin");
+      setPickOk("Posted to LinkedIn");
       setPhase("done");
     } catch (e) {
       setPhase("idle");
@@ -205,7 +200,7 @@ export function GeneratorPage() {
   }
 
   function onReset() {
-    setDraft(DUMMY_TWEET_TEXT);
+    setDraft("");
     setError(null);
     setSuccessUrl(null);
     setPhase("idle");
@@ -219,13 +214,15 @@ export function GeneratorPage() {
     setPostId(null);
     setVariationModalOpen(false);
     setReadyToPost(false);
+    setPendingRequestId(null);
+    setWaitingForGeneration(false);
   }
 
   return (
     <div className="app-shell">
       <AppNavRail />
 
-      <div className="main">
+      <div className="main generator-page">
         <header className="page-header">
           <h1 className="page-title">Post to X</h1>
           <div className="row end">
@@ -236,12 +233,7 @@ export function GeneratorPage() {
           </div>
         </header>
 
-        <p className="compose-lead">
-          Generate two mock drafts (one per selected tone) — a dialog opens so you can compare variants with a preview image, pick one, then
-          edit and post. Post to X stays locked until you confirm a variant.
-        </p>
-
-        <div className="compose-box">
+        <div className="compose-box compose-box--first">
           {genErr ? (
             <p className="banner error banner--spaced" role="alert">
               {genErr}
@@ -252,23 +244,24 @@ export function GeneratorPage() {
               {pickOk}
             </p>
           ) : null}
+          {pickErr && !variationModalOpen ? (
+            <p className="banner error banner--spaced" role="alert">
+              {pickErr}
+            </p>
+          ) : null}
           {surveyPostId ? (
             <SatisfactionPrompt
               postId={surveyPostId}
               onDone={() => setSurveyPostId(null)}
             />
           ) : null}
-          {pickErr && !variationModalOpen ? (
-            <p className="banner error banner--spaced" role="alert">
-              {pickErr}
-            </p>
-          ) : null}
-
           <TopicForm
             topic={aiTopic}
             tones={aiTones}
-            disabled={genBusy || pickBusy}
-            isGenerating={genBusy}
+            llmSelection={llmSelection}
+            onLlmSelectionChange={setLlmSelection}
+            disabled={genBusy || waitingForGeneration}
+            isGenerating={genBusy || waitingForGeneration}
             onTopicChange={setAiTopic}
             onTonesChange={setAiTones}
             onGenerate={() => void onGenerateAi()}
@@ -276,28 +269,28 @@ export function GeneratorPage() {
         </div>
 
         <VariationPickerModal
-          open={variationModalOpen}
+          open={variationModalOpen || waitingForGeneration}
+          loading={waitingForGeneration}
+          modelLabel={labelForLlmSelection(llmSelection)}
           variations={variations}
-          canPersist={variations.some((v) => Boolean(v.sourcePostId ?? postId))}
+          canPersist={Boolean(postId)}
           busy={pickBusy}
           reworkBusy={reworkBusy}
-          error={variationModalOpen ? pickErr : null}
-          onClose={closeVariationModal}
+          error={variationModalOpen && !waitingForGeneration ? pickErr : null}
+          onClose={() => {
+            setVariationModalOpen(false);
+            if (waitingForGeneration) {
+              setWaitingForGeneration(false);
+              setPendingRequestId(null);
+            }
+          }}
           onSelect={(v) => void onPickVariation(v)}
           onRework={(v, instr) => void onReworkVariation(v, instr)}
         />
 
         <hr className="divider" />
 
-        <div className="compose-box">
-          <label className="label" htmlFor="tweet-draft">
-            Tweet text
-          </label>
-          {!readyToPost ? (
-            <p className="form-hint">
-              Post to X is locked until you pick a variant in the dialog after generate.
-            </p>
-          ) : null}
+        <div className="compose-box compose-box--draft">
           <textarea
             id="tweet-draft"
             className="input-ghost"
@@ -305,7 +298,8 @@ export function GeneratorPage() {
             value={draft}
             disabled={loading}
             onChange={(e) => setDraft(e.target.value)}
-            aria-label="Tweet text"
+            placeholder="Write your post…"
+            aria-label="Post text"
           />
         </div>
 
@@ -318,8 +312,8 @@ export function GeneratorPage() {
               <button
                 type="button"
                 className="btn primary"
-                disabled={!readyToPost || !canPost || loading}
-                title={!readyToPost ? "Pick a variant first" : undefined}
+                disabled={loading || !readyToPost || !postId}
+                title={!readyToPost || !postId ? "Pick a generated variant first" : undefined}
                 onClick={onPost}
               >
                 {loading ? "···" : "Post to X →"}

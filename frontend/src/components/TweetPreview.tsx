@@ -12,8 +12,7 @@ export function TweetPreview({ draft, actions }: Props) {
   const over = len > MAX;
   return (
     <article className="card animate-in">
-      <div className="card-label">Preview</div>
-      <pre className="preview">{draft || "—"}</pre>
+      <pre className="preview">{draft}</pre>
       <div className="row spread tweet-preview-footer">
         <span className={over ? "count bad" : "count"}>
           {len}/{MAX}

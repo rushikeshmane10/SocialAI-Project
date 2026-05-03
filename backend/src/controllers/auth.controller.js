@@ -1,3 +1,5 @@
+import jwt from "jsonwebtoken";
+import { env } from "../config/env.js";
 import { loginUser } from "../services/auth.service.js";
 import { apiErrorBody } from "../utils/response.js";
 import { loginBodySchema } from "../validations/auth.validations.js";
@@ -12,7 +14,10 @@ export async function loginHandler(req, res) {
     if (!result.ok) {
       return res.status(401).json(apiErrorBody("INVALID_CREDENTIALS", "Invalid email or password"));
     }
-    return res.json({ userId: result.userId, email: result.email });
+    const token = jwt.sign({ sub: result.userId, email: result.email }, env.JWT_SECRET, {
+      expiresIn: "8h",
+    });
+    return res.json({ userId: result.userId, email: result.email, token });
   } catch (err) {
     req.log?.error({ err }, "login database error");
     return res

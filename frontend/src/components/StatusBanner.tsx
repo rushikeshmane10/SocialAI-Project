@@ -22,7 +22,6 @@ export function StatusBanner(props: Props) {
 
   return (
     <article className="card animate-in">
-      <div className="card-label">Status</div>
       <div className={`banner ${error ? "error" : successUrl ? "ok" : ""}`} role="status">
         {message}
         {successUrl ? (

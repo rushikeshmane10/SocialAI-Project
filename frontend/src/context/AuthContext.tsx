@@ -71,12 +71,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await loginRequest({ email, password });
     localStorage.setItem("userId", res.userId);
     localStorage.setItem("userEmail", res.email);
+    localStorage.setItem("authToken", res.token);
     setAuth({ userId: res.userId, userEmail: res.email });
   }, []);
 
   const logout = useCallback(() => {
     localStorage.removeItem("userId");
     localStorage.removeItem("userEmail");
+    localStorage.removeItem("authToken");
     setAuth({ userId: null, userEmail: null });
   }, []);
 

@@ -1,14 +1,16 @@
 import { getModels, getSequelize } from "../db/sequelize.js";
+import { env } from "../config/env.js";
 import { extractInsights } from "../helpers/extractInsights.js";
-import { mockGenerate } from "../helpers/mockGenerate.js";
+import { generateDraftVariations } from "./aiClient.service.js";
 import { refreshProfileFromRecentFeedback } from "./feedback.service.js";
+import { getProfile } from "./profile.service.js";
 
 const MOCK_GENERATED_VERSION = 1;
 
 /**
  * Parse persisted mock payload from posts.generated_text.
  * @param {string} generatedText
- * @returns {Array<{ variation_id: number; text: string }> | null}
+ * @returns {Array<{ variation_id: number; text: string; image_base64?: string | null }> | null}
  */
 export function parseStoredVariations(generatedText) {
   try {
@@ -30,31 +32,72 @@ function effectiveTopicForPersist(topic, rework) {
   return `${t}\n\n${block}`.slice(0, 450);
 }
 
+function toNullableString(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 /**
- * Mock AI path: insights → behavior row → 2 variations → draft post (JSON in generated_text).
+ * Python text generation path with profile context, then persist draft post.
  * @param {string} userId
  * @param {string} topic
- * @param {string} [tone]
+ * @param {[string, string]} tones
  * @param {{ base: string; instructions: string } | null} [rework]
- * @param {{ sourcePostId?: string | null; sourceVariationId?: number | null }} [options]
+ * @param {{ sourcePostId?: string | null; sourceVariationId?: number | null; requestId?: string }} [options]
  */
-export async function mockGenerateAndPersist(userId, topic, tone, rework = null, options = {}) {
+export async function mockGenerateAndPersist(userId, topic, tones, rework = null, options = {}) {
   const sequelize = getSequelize();
   const { Post, UserBehavior, PostReworkLog } = getModels();
-  const topicForMocks = effectiveTopicForPersist(topic, rework);
-  const insights = extractInsights(topicForMocks, tone ?? "");
+  const topicForPersist = effectiveTopicForPersist(topic, rework);
+  const profile = await getProfile(userId);
+  const toneSummary = tones.filter(Boolean).join(", ");
+  const insights = extractInsights(topicForPersist, toneSummary);
   if (process.env.NODE_ENV === "development") {
     console.log("[generate insights]", insights);
   }
-  const variations = mockGenerate(topicForMocks, tone ?? "", insights);
-  const generated_text = JSON.stringify({ version: MOCK_GENERATED_VERSION, variations });
+  const aiResult = await generateDraftVariations(
+    env,
+    {
+      topic: topicForPersist,
+      tones,
+      profession: toNullableString(profile?.profession),
+      audience: toNullableString(profile?.audience),
+      vibe: toNullableString(profile?.vibe),
+      rework_base_text: rework?.base ?? null,
+      rework_instructions: rework?.instructions ?? null,
+    },
+    options.requestId,
+  );
+  const variations = aiResult.variations;
+  const profileContext = {
+    profession: toNullableString(profile?.profession),
+    audience: toNullableString(profile?.audience),
+    vibe: toNullableString(profile?.vibe),
+  };
+  const generated_text = JSON.stringify({
+    version: MOCK_GENERATED_VERSION,
+    source: "python_ai_service",
+    variations,
+  });
 
   return sequelize.transaction(async (transaction) => {
     await UserBehavior.create(
       {
         user_id: userId,
         event_type: "generate_insight",
-        payload: { ...insights, topic, tone: tone ?? "", rework: Boolean(rework?.instructions) },
+        payload: {
+          ...insights,
+          topic,
+          tones,
+          rework: Boolean(rework?.instructions),
+          profile_context: {
+            profession: profileContext.profession,
+            audience: profileContext.audience,
+            vibe: profileContext.vibe,
+          },
+          ai_models: aiResult.models,
+        },
       },
       { transaction },
     );
@@ -63,7 +106,7 @@ export async function mockGenerateAndPersist(userId, topic, tone, rework = null,
       {
         user_id: userId,
         topic,
-        tone: tone?.trim() ? tone.trim() : null,
+        tone: tones.join(", "),
         generated_text,
         image_prompt: null,
         image_url: null,
@@ -94,18 +137,32 @@ export async function mockGenerateAndPersist(userId, topic, tone, rework = null,
           source_variation_id: vid,
           model_output: {
             version: MOCK_GENERATED_VERSION,
+            source: "python_ai_service",
             variations,
             insights,
             topic: (topic ?? "").trim(),
-            tone: tone?.trim() ? tone.trim() : null,
+            tones,
             source_variation_id: vid,
+            profile_context: {
+              profession: profileContext.profession,
+              audience: profileContext.audience,
+              vibe: profileContext.vibe,
+            },
+            models: aiResult.models,
           },
         },
         { transaction },
       );
     }
 
-    return { postId: post.id, variations, insights };
+    return {
+      postId: post.id,
+      variations,
+      model: aiResult.models.filter(Boolean).join(", ") || null,
+      insights,
+      profileContext:
+        profileContext.profession || profileContext.audience || profileContext.vibe ? profileContext : null,
+    };
   });
 }
 
@@ -144,6 +201,10 @@ export async function selectVariation(userId, postId, variationId, selectedText)
     if (!picked || picked.text.trim() !== text) {
       return { ok: false, code: "VARIATION_MISMATCH" };
     }
+    const selectedImageBase64 =
+      typeof picked.image_base64 === "string" && picked.image_base64.trim().length > 0
+        ? picked.image_base64
+        : null;
 
     const rejected_variation_id = variationId === 1 ? 2 : 1;
 
@@ -152,6 +213,7 @@ export async function selectVariation(userId, postId, variationId, selectedText)
         status: "selected",
         selected_variation_id: variationId,
         selected_text: text,
+        selected_image_base64: selectedImageBase64,
       },
       { where: { id: postId, user_id: userId, status: "draft" }, transaction },
     );
@@ -188,6 +250,39 @@ export async function selectVariation(userId, postId, variationId, selectedText)
 
     return { ok: true, postId, selectedVariation: variationId };
   });
+}
+
+/**
+ * Persist async generation callback output as a draft post so frontend can select a variation by post id.
+ * @param {string} userId
+ * @param {string} topic
+ * @param {string[]} tones
+ * @param {Array<{ variation_id: number; text: string; tone_applied?: string; estimated_length?: string; hashtags?: string[]; image_base64?: string | null }>} variations
+ * @param {string | null} [model]
+ * @returns {Promise<{ postId: string }>}
+ */
+export async function persistGeneratedFromCallback(userId, topic, tones, variations, model = null) {
+  const { Post } = getModels();
+  const normalizedVariations = (Array.isArray(variations) ? variations : []).map((variation) => ({
+    ...variation,
+    image_base64: typeof variation?.image_base64 === "string" ? variation.image_base64 : null,
+  }));
+  const generated_text = JSON.stringify({
+    version: MOCK_GENERATED_VERSION,
+    source: "python_ai_service_callback",
+    model,
+    variations: normalizedVariations,
+  });
+  const post = await Post.create({
+    user_id: userId,
+    topic: (topic ?? "").trim(),
+    tone: (Array.isArray(tones) ? tones : []).filter(Boolean).join(", "),
+    generated_text,
+    image_prompt: null,
+    image_url: null,
+    status: "draft",
+  });
+  return { postId: post.id };
 }
 
 export async function listPostsForUser(userId, limit, offset) {

@@ -1,8 +1,8 @@
-`# Backend (Node.js) — Social Agent API
+# Backend (Node.js) — Social Agent API
 
-**Purpose:** HTTP API for the social-agent monorepo. This service **does not** call OpenAI or run LangChain. It validates requests, **proxies AI work to the Python `ai-service`**, posts tweets to X with **server-only** credentials, and returns stable JSON to the React app.
+**Purpose:** HTTP API for the social-agent monorepo. This service **does not embed LLM prompts or chains**; it validates requests, **proxies generation to the Python `ai-service`** (OpenAI / LangChain / image steps live there), receives **webhook-style callbacks**, pushes **Socket.IO** updates to the browser, persists **Postgres** when enabled, posts tweets to X with **server-only** credentials, and returns stable JSON to the React app.
 
-**Stack:** Node 20+, **Express 4**, **Sequelize 6** (Postgres), plain **JavaScript** (ESM), **Zod** (env + request validation), **fetch** to Python, **twitter-api-v2** for X.
+**Stack:** Node 20+, **Express 4**, **Socket.IO**, **Sequelize 6** (Postgres), plain **JavaScript** (ESM), **Zod** (env + request validation), **fetch** to Python, **twitter-api-v2** for X.
 
 ---
 
@@ -10,16 +10,21 @@
 
 ```text
 Browser (React)
-       │  POST /ai/generate   POST /post/tweet
+       │  POST /ai/generate (202 + requestId)   Socket.IO generation:{requestId}
+       │  POST /post/tweet
        ▼
-  THIS SERVICE (Express)  ← secrets: Twitter OAuth 1.0a, AI base URL
+  THIS SERVICE (Express + Socket.IO)  ← secrets: Twitter OAuth 1.0a, AI base URL
        │
-       ├──► Python ai-service  POST {AI_SERVICE_URL}/generate  (OpenAI / LangChain / image pipeline live there)
+       ├──► Python ai-service   POST {AI_SERVICE_URL}/generate-async  (ack + background job)
+       │         │
+       │         └──► callback POST /ai/callback/generate-complete  ──► emits generation_lifecycle
        │
        └──► Twitter API v2      (tweet text only; no media upload in MVP)
 ```
 
-**Invariant:** The frontend never holds `OPENAI_*` or Twitter tokens. Only this backend does.
+**Invariant:** The frontend never holds `OPENAI_*` or Twitter tokens. Only this backend (and the Python worker) hold service credentials as configured.
+
+**Sync path (still in code):** [`aiClient.service.js`](src/services/aiClient.service.js) can call **`POST /generate`** for a full pipeline response (used by helpers such as `generateDraftVariations`); the **`POST /ai/generate`** route uses **`/generate-async`** today.
 
 ---
 
@@ -114,11 +119,11 @@ Layered layout; keep handlers thin and side effects in services.
 
 | Path | Role |
 |------|------|
-| [src/index.js](src/index.js) | Process entry: `createServer()` + `listen` on `PORT`. |
+| [src/index.js](src/index.js) | Process entry: HTTP server from Express app, **Socket.IO** attach + auth, `listen` on `PORT`. |
 | [src/createServer.js](src/createServer.js) | Build Express: **pino-http**, `errorHandler`, CORS, `requestId` middleware, register [routes/index.js](src/routes/index.js). |
 | [src/routes/](src/routes/) | **Route map only.** [index.js](src/routes/index.js) mounts routers; each `*.routes.js` binds path → controller. |
 | [src/controllers/](src/controllers/) | Parse/validate (or delegate validation), call services, send HTTP responses. |
-| [src/services/](src/services/) | **aiClient.service.js** — HTTP client to Python (`generateDraft`). **twitter.service.js** — X posting. **auth**, **profile**, **posts**, **feedback**, **behaviorLearner** when DB is enabled. |
+| [src/services/](src/services/) | **aiClient.service.js** — HTTP client to Python (`startGenerateDraftJob` → `/generate-async`, `generateDraft` → `/generate`, `generateDraftVariations`). **socketGenerationRooms.js** — generation rooms. **twitter.service.js** — X posting. **auth**, **profile**, **posts**, **feedback**, **behaviorLearner** when DB is enabled. |
 | [src/models/](src/models/) | Sequelize models (`User`, `UserProfile`, `Post`, `PostFeedback`, `UserBehavior`). |
 | [src/db/](src/db/) | **sequelize.js** — Sequelize instance. **migrate.js** — ordered `migrations/*.sql` + `schema_migrations` table. |
 | [migrations/](migrations/) | Versioned SQL (e.g. `001_init.sql`). |
@@ -131,12 +136,23 @@ Layered layout; keep handlers thin and side effects in services.
 
 ## How we connect to Python (ai-service)
 
-1. **URL:** `AI_SERVICE_URL` (e.g. `http://127.0.0.1:8000`). Endpoint: **`POST /generate`** (full URL = `new URL("/generate", AI_SERVICE_URL)`).
-2. **Request body:** `{ "topic": string, "tone"?: string }` — same shape the FastAPI app expects.
+### Async (used by `POST /ai/generate`)
+
+1. **URL:** `AI_SERVICE_URL` (e.g. `http://127.0.0.1:8000`). Endpoint: **`POST /generate-async`** — returns **`{ accepted: true, request_id }`** quickly.
+2. **Request body:** topic, two **`tones`**, optional profile / rework fields, optional **`user_id`** — see [aiClient.service.js](src/services/aiClient.service.js) `startGenerateDraftJob`.
 3. **Headers:** `content-type: application/json`, **`x-request-id`** — propagated for log correlation with uvicorn/FastAPI.
-4. **Timeouts:** **`AI_SERVICE_GENERATE_TIMEOUT_MS`** (default 120s) for `/ai/generate` (tweet + image pipeline is slow). Generic **`AI_SERVICE_TIMEOUT_MS`** remains for any future shorter calls.
-5. **Response parsing:** [aiClient.service.js](src/services/aiClient.service.js) expects JSON with **`post`** (tweet text), **`image_prompt`**, **`image_url`**, **`image`** (`status` `ok` \| `failed`, optional `code`/`message`), **`model`**. Partial success: HTTP 200 from Python with `image.status === "failed"` is **passed through** to the client.
-6. **Errors:** Network/5xx/timeout → `AiServiceError` → mapped to **502/504** and stable `code` values; no LLM details leaked to clients.
+4. **Timeout:** **`AI_SERVICE_TIMEOUT_MS`** (default **25s**) bounds only the **ack** call, not the full LLM run.
+5. **Callback:** Python **`POST`**s to **`/ai/callback/generate-complete`** on this server (base URL must be reachable from the worker; configured on the Python side). Handler validates with Zod, returns **202**, emits **`generation_lifecycle`** on Socket.IO to room **`generation:{requestId}`**.
+6. **Errors:** Failed ack → `AiServiceError` → **502/504** etc.; callback failures are delivered in the socket payload (see [ai.validations.js](src/validations/ai.validations.js) `generateCompleteCallbackSchema`).
+
+### Sync `POST /generate` (helpers / tests)
+
+1. **URL:** `new URL("/generate", AI_SERVICE_URL)`.
+2. **Body:** `topic`, **`tone`** (single), optional profession/audience/vibe, rework fields — per FastAPI schema.
+3. **Timeout:** **`AI_SERVICE_GENERATE_TIMEOUT_MS`** (default **120s**) — full tweet + optional image pipeline.
+4. **Response:** JSON with **`post`**, **`image_prompt`**, **`image_url`**, **`image`** (`status` `ok` \| `failed` \| `skipped`, optional `code`/`message`), **`model`**. Partial success: HTTP 200 with `image.status === "failed"` can be passed through by callers.
+
+**Errors (both patterns):** Network/5xx/timeout → `AiServiceError` → stable `code` values; no raw LLM traces to clients.
 
 ---
 
@@ -149,9 +165,12 @@ Layered layout; keep handlers thin and side effects in services.
 | GET | `/profile` | Header `X-User-Id` | User profile + `dynamic_adjustments`. |
 | POST | `/profile` | Header `X-User-Id` | `{ profession, audience, vibe }` upsert. |
 | POST | `/preferences/log` | `X-User-Id` | `{ answers: Record<string, string> }` — validated and **logged only** (no DB write); max 20 keys. |
-| POST | `/ai/generate` | `X-User-Id` if `DATABASE_URL` set | Proxies Python; **persists** `posts` row; response includes **`postId`**. Without DB: same path, **no** header, no persist. |
+| POST | `/ai/generate` | `X-User-Id` if `DATABASE_URL` set | Starts Python **`/generate-async`**; responds **HTTP 202** with **`requestId`**, **`insights`**, and status message. Client joins Socket.IO room for completion. **Does not** synchronously create `posts` in the controller—wire [generateCompleteCallbackHandler](src/controllers/ai.controller.js) to persistence if you want auto-save (helpers in [posts.service.js](src/services/posts.service.js)). Without DB: same async path, **no** `X-User-Id`. |
+| POST | `/ai/callback/generate-complete` | No (secure at network layer in prod) | Python completion webhook; validates body; **202**; emits **`generation_lifecycle`**. |
 | GET | `/posts` | `X-User-Id` | `?limit=&cursor=` list current user’s posts. |
 | GET | `/posts/:id` | `X-User-Id` | Single post (403/404 if not owner). |
+| POST | `/posts/:id/select-variation` | `X-User-Id` | Pick variation 1 or 2; updates `posts`, logs `user_behavior`, `post_feedback`. |
+| POST | `/posts/:id/satisfaction` | `X-User-Id` | Micro-survey after selection → `satisfaction_signals`, `user_behavior`, profile hints. |
 | POST | `/posts/:id/feedback` | `X-User-Id` | `{ action, editedText?, metadata? }` — updates `post_feedback`, `user_profiles.dynamic_adjustments` (heuristics), and post `status` when accepted/rejected/edited. |
 | POST | `/behavior/event` | `X-User-Id` | `{ event_type, payload? }` → `user_behavior`. |
 | POST | `/post/tweet` | No | Body: `{ text }`. Posts to X (OAuth 1.0a env vars required). |
@@ -179,7 +198,7 @@ Copy [.env.example](.env.example) → `.env`. Required for full behavior:
 
 - **Always:** `AI_SERVICE_URL`, `FRONTEND_ORIGIN`
 - **DB mode:** `DATABASE_URL` (production **required**)
-- **Generate:** `AI_SERVICE_GENERATE_TIMEOUT_MS` (raise if image step times out)
+- **Generate:** `AI_SERVICE_TIMEOUT_MS` (ack to `/generate-async`), `AI_SERVICE_GENERATE_TIMEOUT_MS` (full **`/generate`** sync calls / slow pipeline)
 - **Posting to X:** `TWITTER_API_KEY`, `TWITTER_API_SECRET`, `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_SECRET` — see [Twitter (X) integration](#twitter-x-integration) for flow, error codes, and portal checklist.
 
 ---
@@ -202,11 +221,12 @@ npm test         # node:test + supertest; loads test/env-globals.js first
 2. **Secrets** — never in frontend env (`VITE_*`); Twitter + service URLs live here only.
 3. **Validation** — Zod at the edge; Python validates again; fail fast on bad env in [config/env.js](src/config/env.js).
 4. **Errors** — consistent envelope via [utils/response.js](src/utils/response.js); controllers catch domain errors (`AiServiceError`, `TwitterServiceError`) and set status + body.
-5. **Observability** — `requestId` on requests; AI controller logs `imageStatus`, `hasImageUrl`, `postLen` after successful generate.
+5. **Observability** — `requestId` on requests; AI controller logs generation **accept** and **callback** lifecycle (success vs failed payloads).
 6. **Posting contract** — `/post/tweet` sends exactly the text the user approved in the UI (length validated; no server-side rewrite).
 7. **Tests** — [test/](test/) uses `test/env-globals.js` so `env` loads before importing `createServer`; covers health, validation, Twitter-not-configured, and AI response parsing helpers.
 
-When extending: add route → controller → service; add Zod schema in `validations/`; keep request/response JSON aligned with the frontend; update Python and frontend in lockstep for `/ai/generate` shape changes.
+When extending: add route → controller → service; add Zod schema in `validations/`; keep request/response JSON aligned with the frontend; update Python and frontend in lockstep for `/ai/generate` and callback payload shapes.
 
 **Frontend with DB mode:** call `POST /auth/login`, store `userId` (e.g. `localStorage`), then send header **`X-User-Id: <uuid>`** on protected routes. This is identification only (not a security boundary) — fine for local learning.
-`
+
+Monorepo stack overview: [../README-overview.md](../README-overview.md).

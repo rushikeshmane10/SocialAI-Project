@@ -20,7 +20,7 @@ describe("HTTP API", () => {
     const res = await request(app)
       .post("/ai/generate")
       .set("content-type", "application/json")
-      .send({ topic: "ab" })
+      .send({ topic: "ab", tones: ["professional", "casual"] })
       .expect(400);
     assert.equal(res.body.error.code, "VALIDATION_ERROR");
   });
@@ -31,7 +31,7 @@ describe("HTTP API", () => {
       .set("content-type", "application/json")
       .send({
         topic: "Launch week for our new feature",
-        tone: "concise",
+        tones: ["professional", "casual"],
         reworkInstructions: "Make it shorter and add a question at the end.",
       })
       .expect(400);
@@ -44,9 +44,99 @@ describe("HTTP API", () => {
       .set("content-type", "application/json")
       .send({
         topic: "Launch week for our new feature",
-        tone: "concise",
+        tones: ["professional", "casual"],
         reworkBaseText: "Some draft text here for the mock.",
         reworkInstructions: "Make it shorter please.",
+      })
+      .expect(400);
+    assert.equal(res.body.error.code, "VALIDATION_ERROR");
+  });
+
+  test("POST /ai/generate rejects invalid modelProvider", async () => {
+    const res = await request(app)
+      .post("/ai/generate")
+      .set("content-type", "application/json")
+      .send({
+        topic: "Launch week for our new feature",
+        tones: ["professional", "casual"],
+        modelProvider: "anthropic",
+      })
+      .expect(400);
+    assert.equal(res.body.error.code, "VALIDATION_ERROR");
+  });
+
+  test("POST /ai/callback/generate-complete accepts succeeded payload", async () => {
+    const res = await request(app)
+      .post("/ai/callback/generate-complete")
+      .set("content-type", "application/json")
+      .send({
+        requestId: "cb-success-1",
+        status: "succeeded",
+        finishedAt: "2026-04-25T13:00:00Z",
+        result: {
+          postId: null,
+          variations: [
+            { variation_id: 1, text: "Draft one", tone_applied: "professional", estimated_length: "9 chars", hashtags: [] },
+            { variation_id: 2, text: "Draft two", tone_applied: "casual", estimated_length: "9 chars", hashtags: [] },
+          ],
+        },
+        meta: {
+          userId: null,
+          topic: "Launch day",
+          tones: ["professional", "casual"],
+          sourceRequestId: "req-1",
+        },
+      })
+      .expect(202);
+    assert.deepEqual(res.body, { ok: true });
+  });
+
+  test("POST /ai/callback/generate-complete accepts failed payload", async () => {
+    const res = await request(app)
+      .post("/ai/callback/generate-complete")
+      .set("content-type", "application/json")
+      .send({
+        requestId: "cb-failed-1",
+        status: "failed",
+        finishedAt: "2026-04-25T13:00:00Z",
+        error: {
+          code: "LLM_PROVIDER_ERROR",
+          message: "Tweet generation failed",
+          stage: "tweet",
+        },
+        meta: {
+          userId: null,
+          topic: "Launch day",
+          tones: ["professional", "casual"],
+          sourceRequestId: "req-1",
+        },
+      })
+      .expect(202);
+    assert.deepEqual(res.body, { ok: true });
+  });
+
+  test("POST /ai/callback/generate-complete rejects malformed status-shape", async () => {
+    const res = await request(app)
+      .post("/ai/callback/generate-complete")
+      .set("content-type", "application/json")
+      .send({
+        requestId: "cb-bad-1",
+        status: "succeeded",
+        finishedAt: "2026-04-25T13:00:00Z",
+        error: { code: "SHOULD_NOT_BE_HERE", message: "nope" },
+      })
+      .expect(400);
+    assert.equal(res.body.error.code, "VALIDATION_ERROR");
+  });
+
+  test("POST /ai/callback/generate-complete rejects missing required fields", async () => {
+    const res = await request(app)
+      .post("/ai/callback/generate-complete")
+      .set("content-type", "application/json")
+      .send({
+        requestId: "cb-bad-2",
+        status: "failed",
+        finishedAt: "2026-04-25T13:00:00Z",
       })
       .expect(400);
     assert.equal(res.body.error.code, "VALIDATION_ERROR");

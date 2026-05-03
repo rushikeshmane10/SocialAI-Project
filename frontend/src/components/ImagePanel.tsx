@@ -10,6 +10,7 @@ type Props = {
 
 export function ImagePanel({ imageUrl, imagePrompt, image, visualLoading = false }: Props) {
   const failed = image?.status === "failed";
+  const skipped = image?.status === "skipped";
   const showImg = image?.status === "ok" && imageUrl;
 
   return (
@@ -29,6 +30,9 @@ export function ImagePanel({ imageUrl, imagePrompt, image, visualLoading = false
           {image?.message ?? "Image could not be generated."}
           {image?.code ? ` (${image.code})` : ""}
         </p>
+      ) : null}
+      {skipped && !visualLoading && image?.message ? (
+        <p className="image-skipped">{image.message}</p>
       ) : null}
       {imagePrompt && !visualLoading ? (
         <details className="image-prompt-details">

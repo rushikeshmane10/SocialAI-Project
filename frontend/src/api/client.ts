@@ -82,3 +82,13 @@ export async function postJson<T>(path: string, body: unknown, options?: JsonReq
 
   return json as T;
 }
+
+export async function publishPost(
+  postId: string,
+  platform: "linkedin" | "twitter",
+): Promise<{ success: true; platform: string }> {
+  return postJson<{ success: true; platform: string; postId?: string }>(
+    `/connections/posts/${encodeURIComponent(postId)}/publish`,
+    { platform },
+  );
+}

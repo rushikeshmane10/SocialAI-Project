@@ -39,7 +39,13 @@ export async function createServer() {
       allowedHeaders: ["Content-Type", "x-request-id", "x-user-id"],
     }),
   );
-  app.use(express.json());
+  // Python completion webhook sends two base64 images + metadata; default 1mb is too small.
+  app.use((req, res, next) => {
+    const isGenerateCompleteCallback =
+      req.method === "POST" && req.path === "/ai/callback/generate-complete";
+    const limit = isGenerateCompleteCallback ? "32mb" : env.JSON_BODY_LIMIT;
+    express.json({ limit })(req, res, next);
+  });
 
   await registerRoutes(app);
 

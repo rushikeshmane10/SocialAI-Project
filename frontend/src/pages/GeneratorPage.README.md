@@ -4,10 +4,10 @@ Short reference for how this screen is built and which design system it follows.
 
 ## Design system source
 
-- **Tokens & global rules:** [`src/index.css`](../index.css) (`:root` variables, Inter font, **light-only** — no dark theme).
+- **Tokens & global rules:** [`src/index.css`](../index.css) (`:root` variables, Inter font, plus `html.theme-x` token flips for dark).
 - **Layout & components:** [`src/App.css`](../App.css) (shell, compose, cards, buttons, banners, **variation modal** block at the bottom).
 
-GeneratorPage does **not** define its own colors or spacing literals; it uses the shared classes above so it stays consistent with Login, Preferences, etc.
+GeneratorPage does **not** define its own colors or spacing literals; it uses the shared classes above. The **`<main>`** element also carries **`generator-page`** so `App.css` can target **route `/` only** (`.main.generator-page …`) without changing Preferences, Connections, or Login.
 
 ## Visual language (theme)
 
@@ -40,6 +40,12 @@ GeneratorPage does **not** define its own colors or spacing literals; it uses th
 
 - **Radius:** Mostly sharp X-like UI; **exceptions** use `--radius-sm` / `--radius-md` (modal panel, images, badges).
 - **Elevation:** Modal uses layered **box-shadow** + thin inner highlight; backdrop uses **blur** + semi-transparent black (not a token — scoped to `.variation-modal-backdrop`).
+
+## `generator-page` (scoped CSS hook)
+
+| Class | Where | Why |
+|--------|--------|-----|
+| `generator-page` | On the same element as `main` in [`GeneratorPage.tsx`](./GeneratorPage.tsx) | Selectors like `.main.generator-page > .page-header` and `.main.generator-page .btn.primary` tune spacing and “premium” surfaces **only** for Post to X, leaving other routes’ `.main` / `.btn` rules unchanged. |
 
 ## Layout patterns on this page
 

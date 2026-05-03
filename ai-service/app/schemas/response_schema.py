@@ -14,7 +14,7 @@ class VisualPromptOutput(BaseModel):
 
 
 class ImageResult(BaseModel):
-    status: Literal["ok", "failed"]
+    status: Literal["ok", "failed", "skipped"]
     model: str | None = None
     code: str | None = None
     message: str | None = None
@@ -24,5 +24,11 @@ class GeneratePipelineResponse(BaseModel):
     post: str
     image_prompt: str | None
     image_url: str | None
+    image_base64: str | None = None
     image: ImageResult
     model: str
+
+
+class GenerateAsyncAcceptedResponse(BaseModel):
+    accepted: Literal[True] = True
+    request_id: str
