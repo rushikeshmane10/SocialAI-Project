@@ -1,0 +1,2 @@
+ALTER TABLE posts
+ADD COLUMN IF NOT EXISTS selected_image_base64 TEXT;
