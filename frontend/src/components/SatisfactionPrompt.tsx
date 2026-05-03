@@ -36,15 +36,15 @@ export function SatisfactionPrompt({ postId, onDone }: Props) {
 
   if (phase === "thanks") {
     return (
-      <p className="meta" role="status">
+      <p className="sr-only" role="status">
         Thanks for the feedback.
       </p>
     );
   }
 
   return (
-    <div className="card animate-in">
-      <p className="meta">Was this close to what you wanted?</p>
+    <div className="card animate-in satisfaction-prompt">
+      <p className="sr-only">How close was the result?</p>
       <div className="row end">
         {OPTIONS.map((opt) => (
           <button

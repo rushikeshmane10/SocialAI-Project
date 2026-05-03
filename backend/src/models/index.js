@@ -14,6 +14,9 @@ export function initModels(sequelize) {
       },
       email: { type: DataTypes.TEXT, allowNull: false, unique: true },
       password_hash: { type: DataTypes.TEXT, allowNull: false },
+      twitter_connected: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      linkedin_connected: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      composio_entity_id: { type: DataTypes.TEXT, allowNull: true, unique: true },
     },
     { tableName: "users", underscored: true, timestamps: true },
   );
@@ -57,6 +60,7 @@ export function initModels(sequelize) {
       published_at: { type: DataTypes.DATE, allowNull: true },
       selected_variation_id: { type: DataTypes.INTEGER, allowNull: true },
       selected_text: { type: DataTypes.TEXT, allowNull: true },
+      selected_image_base64: { type: DataTypes.TEXT, allowNull: true },
     },
     { tableName: "posts", underscored: true, timestamps: true },
   );

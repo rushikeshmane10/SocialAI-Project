@@ -1,5 +1,5 @@
 export type ImageResult = {
-  status: "ok" | "failed";
+  status: "ok" | "failed" | "skipped";
   model?: string;
   code?: string;
   message?: string;
@@ -28,11 +28,12 @@ export type GenerateInsights = {
 };
 
 export type PostVariation = {
-  variation_id: number;
+  variation_id: 1 | 2;
   text: string;
   tone_applied: string;
   estimated_length: string;
   hashtags: string[];
+  image_base64?: string | null;
   /** Original draft source post id used for optional persistence when a variant is picked. */
   sourcePostId?: string | null;
   /** Original variation id in the source draft (1 or 2) used for pick persistence. */
@@ -41,9 +42,61 @@ export type PostVariation = {
 
 export type MockGenerateResponse = {
   postId: string | null;
-  variations: PostVariation[];
+  variations: [PostVariation, PostVariation];
+  model?: string | null;
   insights: GenerateInsights;
+  profileContext?: {
+    profession: string | null;
+    audience: string | null;
+    vibe: string | null;
+  } | null;
 };
+
+export type GenerateStartResponse = {
+  ok: true;
+  status: "started";
+  requestId: string;
+  message: string;
+  insights?: GenerateInsights;
+};
+
+export type GenerationLifecycleSucceeded = {
+  requestId: string;
+  status: "succeeded";
+  finishedAt: string;
+  result: {
+    postId: string | null;
+    variations: PostVariation[];
+    model?: string | null;
+    pipeline?: unknown;
+  };
+  meta?: {
+    userId?: string | null;
+    topic?: string;
+    tones?: string[];
+    sourceRequestId?: string;
+  };
+};
+
+export type GenerationLifecycleFailed = {
+  requestId: string;
+  status: "failed";
+  finishedAt: string;
+  error: {
+    code: string;
+    message: string;
+    stage?: string;
+  };
+  result?: Record<string, unknown>;
+  meta?: {
+    userId?: string | null;
+    topic?: string;
+    tones?: string[];
+    sourceRequestId?: string;
+  };
+};
+
+export type GenerationLifecycleEvent = GenerationLifecycleSucceeded | GenerationLifecycleFailed;
 
 export type SelectVariationResponse = {
   success: boolean;
