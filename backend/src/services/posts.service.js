@@ -53,9 +53,7 @@ export async function mockGenerateAndPersist(userId, topic, tones, rework = null
   const profile = await getProfile(userId);
   const toneSummary = tones.filter(Boolean).join(", ");
   const insights = extractInsights(topicForPersist, toneSummary);
-  if (process.env.NODE_ENV === "development") {
-    console.log("[generate insights]", insights);
-  }
+
   const aiResult = await generateDraftVariations(
     env,
     {

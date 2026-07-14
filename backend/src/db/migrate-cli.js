@@ -11,4 +11,4 @@ if (!env.DATABASE_URL) {
 const sequelize = getSequelize();
 await runMigrations(sequelize);
 await closeSequelize();
-console.log("Migrations complete.");
+

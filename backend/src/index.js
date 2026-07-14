@@ -14,8 +14,9 @@ const httpServer = createHttpServer(app);
 
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: env.FRONTEND_ORIGIN,
+    origin: "*",
     methods: ["GET", "POST"],
+    credentials: true
   },
   /** Match large JSON on /ai/callback/generate-complete (variations carry base64 images). */
   maxHttpBufferSize: 32e6,

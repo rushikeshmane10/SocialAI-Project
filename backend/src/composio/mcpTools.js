@@ -11,7 +11,7 @@ const COMPOSIO_MCP_DEV_USER_ID = "user_w0ckb2";
  */
 export async function fetchAndLogMCPTools() {
   if (!composioConfigured()) {
-    console.log("Skipping MCP tools log: COMPOSIO_API_KEY not set");
+
     return;
   }
 
@@ -36,12 +36,9 @@ export async function fetchAndLogMCPTools() {
       return u.includes("LINKEDIN") && (u.includes("POST") || u.includes("IMAGE") || u.includes("MY_INFO"));
     });
     if (linkedinRelevant.length > 0) {
-      console.log(
-        "[MCP tools] Composio LinkedIn-related tool keys (use docs.composio.dev/tools/linkedin for params; Rube MCP is not wired in this repo):",
-        linkedinRelevant.sort().join(", "),
-      );
+
     }
-    console.log("MCP Tools:", JSON.stringify(tools, null, 2));
+
   } catch (err) {
     console.error(
       "[MCP tools] Failed to fetch or log tools:",

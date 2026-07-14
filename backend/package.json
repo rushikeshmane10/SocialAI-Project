@@ -18,7 +18,6 @@
     "@composio/core": "^0.6.11",
     "ai": "^6.0.168",
     "bcrypt": "^6.0.0",
-    "composio-core": "^0.5.39",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
