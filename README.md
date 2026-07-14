@@ -1,5 +1,41 @@
 # Social AI (demo monorepo)
 
+## Project summary
+
+This repo is a full-stack social post generation demo with three main layers:
+
+- **Frontend:** React + Vite UI where users sign in, set preferences, generate drafts, choose a final version, and give feedback.
+- **Backend:** Node/Express API with Sequelize + Postgres persistence for auth, profiles, posts, feedback, and behavior signals.
+- **AI service:** Python FastAPI worker that generates tweet drafts and optional image prompts using LangChain with OpenAI or Ollama.
+
+The application is built to capture user-level signals at every step so the experience can later be personalized and analyzed.
+
+## Workflow
+
+1. User logs in via `POST /auth/login`.
+2. The client stores the returned `userId` and sends it on every request as `X-User-Id`.
+3. The user saves profile/preferences and requests content generation.
+4. The backend forwards generation requests to the AI worker via `/generate-async`.
+5. The AI worker runs two generation tones, validates structured output, optionally generates an image prompt, and posts results back to the Node callback endpoint.
+6. The frontend shows generated variations; the user selects one and optionally publishes or rates satisfaction.
+7. All actions create persisted records in Postgres: `posts`, `post_feedback`, `satisfaction_signals`, and `user_behavior`.
+
+## High-level design
+
+- **User-facing UI (`frontend/`):** localStorage-based user session, API calls to backend, interactive generation flow.
+- **API & persistence (`backend/`):** Express routes handle auth, profile/preferences, post generation, selection, feedback, and behavior logging.
+- **AI generation worker (`ai-service/`):** FastAPI app that isolates LLM logic, generates text and image prompts, and returns results asynchronously.
+- **Data flow:** frontend → backend → ai-service → backend → frontend.
+- **Identity flow:** `X-User-Id` header links all persisted rows to the same user without a JWT-heavy flow.
+
+## Low-level design
+
+- **Backend implementation:** `backend/src/controllers/` hold request handlers; `backend/src/db/` manages Sequelize and migrations; `backend/src/helpers/` provides insight extraction and mock generation utilities.
+- **AI worker implementation:** `ai-service/app/core/` defines configuration, LLM factory, prompt chains, and model settings; `ai-service/app/routes/generate.py` manages generation endpoints and callback delivery.
+- **Persistence schema:** `users`, `user_profiles`, `posts`, `post_feedback`, `satisfaction_signals`, and `user_behavior` capture profile state, content drafts, selection decisions, satisfaction labels, and event telemetry.
+- **Async coordination:** Python worker uses `NODE_CALLBACK_BASE_URL` and `GENERATE_CALLBACK_PATH` to notify Node when generation completes; Node then updates the user-facing flow.
+- **Optional image support:** `IMAGE_PROVIDER` controls whether the visual prompt step generates an image URL through OpenAI or skips image generation.
+
 ## What this is & why we store user data
 
 **Goal:** A demo app where a user signs in (email/password), saves **preferences**, runs an **AI-backed generate** flow (Node → Python **`/generate-async`**, two tones, **Socket.IO** lifecycle; quick insights still computed in Node), **picks** a variation to persist, and optionally **posts to X** using server-only Twitter credentials. Stack summary: [`README-overview.md`](README-overview.md).

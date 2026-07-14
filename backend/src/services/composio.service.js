@@ -1,4 +1,5 @@
-import { Composio } from "composio-core";
+import { Composio } from "@composio/core";
+import sharp from "sharp";
 import { composioConfigured, env } from "../config/env.js";
 
 export class ComposioServiceError extends Error {
@@ -48,6 +49,44 @@ function appNameFor(platform) {
   return appName;
 }
 
+/**
+ * Returns the authConfigId for the given platform, or throws a clear error if
+ * the env var is missing.
+ * @param {"twitter" | "linkedin"} platform
+ * @returns {string}
+ */
+function getAuthConfigId(platform) {
+  if (platform === "linkedin") {
+    const id = (env.COMPOSIO_LINKEDIN_AUTHOR_URN || "").trim();
+    if (!id) {
+      throw new ComposioServiceError(
+        "COMPOSIO_LINKEDIN_AUTHOR_URN is not set. Add it to your backend environment.",
+        503,
+        "COMPOSIO_NOT_CONFIGURED",
+      );
+    }
+    return id;
+  }
+
+  if (platform === "twitter") {
+    const id = (env.COMPOSIO_TWITTER_AUTH_CONFIG_ID || "").trim();
+    if (!id) {
+      throw new ComposioServiceError(
+        "COMPOSIO_TWITTER_AUTH_CONFIG_ID is not set. Add it to your backend environment.",
+        503,
+        "COMPOSIO_NOT_CONFIGURED",
+      );
+    }
+    return id;
+  }
+
+  throw new ComposioServiceError(
+    `Unsupported platform: ${platform}. Expected "twitter" or "linkedin".`,
+    400,
+    "COMPOSIO_INVALID_PLATFORM",
+  );
+}
+
 function wrapSdkError(err, fallbackMessage) {
   if (err instanceof ComposioServiceError) return err;
   return new ComposioServiceError(fallbackMessage, 502, "COMPOSIO_ERROR");
@@ -56,27 +95,45 @@ function wrapSdkError(err, fallbackMessage) {
 /**
  * @param {string} userId
  * @param {"twitter" | "linkedin"} platform
- * @returns {Promise<string>} OAuth redirect URL the user must visit to authorize.
+ * @returns {Promise<{ redirectUrl: string, connectionId: string | null, waitForConnection: (timeoutMs?: number) => Promise<unknown> }>}
  */
 export async function getConnectionUrl(userId, platform) {
-  const appName = appNameFor(platform);
+  const authConfigId = getAuthConfigId(platform);
   const client = getClient();
-  let connectionRequest;
+
   try {
-    const entity = await client.getEntity(userId);
-    connectionRequest = await entity.initiateConnection({ appName });
+    const connectionRequest = await client.connectedAccounts.link(userId, authConfigId);
+    const redirectUrl = connectionRequest?.redirectUrl || connectionRequest?.redirect_url || null;
+
+    if (!redirectUrl) {
+      throw new ComposioServiceError(
+        `Composio did not return a redirect URL for ${platform}. Verify the auth config ID and that the app is configured for OAuth.`,
+        502,
+        "COMPOSIO_MISSING_REDIRECT_URL",
+      );
+    }
+
+    return {
+      redirectUrl,
+      connectionId: connectionRequest?.id || null,
+      waitForConnection: async (timeoutMs = 120_000) => {
+        if (typeof connectionRequest?.waitForConnection === "function") {
+          return connectionRequest.waitForConnection(timeoutMs);
+        }
+        if (typeof client.connectedAccounts?.waitForConnection === "function" && connectionRequest?.id) {
+          return client.connectedAccounts.waitForConnection(connectionRequest.id, timeoutMs);
+        }
+        throw new ComposioServiceError(
+          `Composio did not expose a waitForConnection method for ${platform}.`,
+          502,
+          "COMPOSIO_CONNECTION_WAIT_FAILED",
+        );
+      },
+    };
   } catch (err) {
+    console.error("Composio connection error:", err?.message ?? err);
     throw wrapSdkError(err, `Could not initiate ${platform} connection.`);
   }
-  const redirectUrl = connectionRequest?.redirectUrl;
-  if (typeof redirectUrl !== "string" || redirectUrl.length === 0) {
-    throw new ComposioServiceError(
-      `${platform} connection did not return a redirect URL.`,
-      502,
-      "COMPOSIO_ERROR",
-    );
-  }
-  return redirectUrl;
 }
 
 /**
@@ -85,12 +142,15 @@ export async function getConnectionUrl(userId, platform) {
  * @returns {Promise<boolean>} True when Composio reports an ACTIVE connection.
  */
 export async function isConnected(userId, platform) {
-  const appName = appNameFor(platform);
   const client = getClient();
+  const toolkitSlug = platform === "linkedin" ? "linkedin" : "twitter";
   try {
-    const entity = await client.getEntity(userId);
-    const connection = await entity.getConnection({ app: appName });
-    return connection?.status === "ACTIVE";
+    const result = await client.connectedAccounts.list({
+      userIds: [userId],
+      toolkitSlugs: [toolkitSlug],
+      statuses: ["ACTIVE"],
+    });
+    return Array.isArray(result?.items) && result.items.length > 0;
   } catch (err) {
     throw wrapSdkError(err, `Could not read ${platform} connection status.`);
   }
@@ -193,7 +253,7 @@ function findPersonUrnDeep(node, depth = 0) {
   }
   if (typeof node === "object") {
     for (const k of Object.keys(node)) {
-      const u = findPersonUrnDeep(/** @type {Record<string, unknown>} */ (node)[k], depth + 1);
+      const u = findPersonUrnDeep(/** @type {Record<string, unknown>} */(node)[k], depth + 1);
       if (u) return u;
     }
   }
@@ -239,7 +299,7 @@ function linkedInPersonUrnFromObject(obj) {
   }
   const profile = obj.profile;
   if (profile && typeof profile === "object" && !Array.isArray(profile)) {
-    const nested = linkedInPersonUrnFromObject(/** @type {Record<string, unknown>} */ (profile));
+    const nested = linkedInPersonUrnFromObject(/** @type {Record<string, unknown>} */(profile));
     if (nested) return nested;
   }
   return null;
@@ -264,7 +324,7 @@ function resolveLinkedInAuthorUrnFromGetMyInfoData(rawFromExecute) {
   for (const k of wrapperKeys) {
     const inner = root[k];
     if (inner && typeof inner === "object" && !Array.isArray(inner)) {
-      candidates.push(/** @type {Record<string, unknown>} */ (inner));
+      candidates.push(/** @type {Record<string, unknown>} */(inner));
     } else if (typeof inner === "string" && inner.trim().startsWith("{")) {
       candidates.push(normalizeActionData(inner));
     }
@@ -280,8 +340,12 @@ function resolveLinkedInAuthorUrnFromGetMyInfoData(rawFromExecute) {
   return null;
 }
 
-/** @param {import("composio-core").Entity} entity */
-async function fetchLinkedInAuthorUrn(entity) {
+/**
+ * @param {import("@composio/core").Composio} client
+ * @param {string} userId
+ * @returns {Promise<string>}
+ */
+async function fetchLinkedInAuthorUrn(client, userId) {
   const manual = (env.COMPOSIO_LINKEDIN_AUTHOR_URN || "").trim();
   if (manual.startsWith("urn:li:person:")) {
     return manual;
@@ -289,7 +353,7 @@ async function fetchLinkedInAuthorUrn(entity) {
 
   let info;
   try {
-    info = await entity.execute({ actionName: "LINKEDIN_GET_MY_INFO", params: {} });
+    info = await client.tools.execute("LINKEDIN_GET_MY_INFO", { userId, arguments: {} });
   } catch {
     throw new ComposioServiceError(
       "Could not load LinkedIn profile for posting.",
@@ -313,17 +377,204 @@ async function fetchLinkedInAuthorUrn(entity) {
   return urn;
 }
 
+/** @param {string | null | undefined} raw */
+function linkedInHasImageInput(raw) {
+  return typeof raw === "string" && raw.trim().replace(/\s/g, "").length > 0;
+}
+
 /**
- * Normalize stored base64 for Composio `LINKEDIN_CREATE_LINKED_IN_POST` `images` array.
- * @param {string | null | undefined} raw
- * @returns {string | null}
+ * Strip optional data-URL prefix; return raw base64 payload.
+ * @param {string} raw
+ * @returns {string}
  */
-function normalizeImageForLinkedInPost(raw) {
-  if (typeof raw !== "string") return null;
-  const t = raw.trim().replace(/\s/g, "");
-  if (!t) return null;
-  if (t.startsWith("data:image/")) return t;
-  return `data:image/png;base64,${t}`;
+function parseDataUrlBase64(raw) {
+  const compact = raw.trim().replace(/\s/g, "");
+  const m = /^data:([^;]+);base64,(.+)$/i.exec(compact);
+  return m ? m[2] : compact;
+}
+
+/**
+ * Decode AI-provided base64 / data URL and compress to JPEG within env limits.
+ * @param {string} raw
+ * @returns {Promise<{ buffer: Buffer }>}
+ */
+async function decodeAndCompressLinkedInImage(raw) {
+  const payload = parseDataUrlBase64(raw);
+  if (!payload) {
+    throw new ComposioServiceError("Empty image payload.", 400, "LINKEDIN_IMAGE_PREP_FAILED");
+  }
+  let buf;
+  try {
+    buf = Buffer.from(payload, "base64");
+  } catch {
+    throw new ComposioServiceError("Invalid image base64.", 400, "LINKEDIN_IMAGE_PREP_FAILED");
+  }
+  if (buf.length === 0) {
+    throw new ComposioServiceError("Invalid image base64.", 400, "LINKEDIN_IMAGE_PREP_FAILED");
+  }
+
+  const maxBytes = env.COMPOSIO_LINKEDIN_IMAGE_MAX_BYTES;
+  const maxEdge = env.COMPOSIO_LINKEDIN_IMAGE_MAX_EDGE;
+  let quality = env.COMPOSIO_LINKEDIN_IMAGE_JPEG_QUALITY_START;
+  let edge = maxEdge;
+
+  try {
+    for (let attempt = 0; attempt < 48; attempt += 1) {
+      const out = await sharp(buf)
+        .rotate()
+        .resize(edge, edge, { fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality, mozjpeg: true })
+        .toBuffer();
+      if (out.length <= maxBytes) {
+        return { buffer: out };
+      }
+      if (quality > 45) {
+        quality -= 5;
+      } else {
+        edge = Math.max(256, Math.floor(edge * 0.88));
+      }
+    }
+  } catch {
+    throw new ComposioServiceError("Could not process image for LinkedIn.", 400, "LINKEDIN_IMAGE_PREP_FAILED");
+  }
+  throw new ComposioServiceError("Could not compress image under max bytes.", 400, "LINKEDIN_IMAGE_PREP_FAILED");
+}
+
+/** @param {string | undefined} text */
+function isImageSchemaValidationError(text) {
+  if (typeof text !== "string" || text.trim().length === 0) return false;
+  return /(invalid|validation|schema|required|must|type|expected|images)/i.test(text);
+}
+
+/**
+ * @param {unknown} rawUploadData
+ * @returns {{ uploadUrl: string | null, assetUrn: string | null }}
+ */
+function extractLinkedInUploadMetadata(rawUploadData) {
+  const root = normalizeActionData(rawUploadData);
+  const candidates = [root];
+  const wrapperKeys = ["data", "response", "result", "body", "output", "payload"];
+  for (const key of wrapperKeys) {
+    const inner = root[key];
+    if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+      candidates.push(/** @type {Record<string, unknown>} */(inner));
+    } else if (typeof inner === "string" && inner.trim().startsWith("{")) {
+      const parsed = normalizeActionData(inner);
+      if (Object.keys(parsed).length > 0) candidates.push(parsed);
+    }
+  }
+
+  for (const candidate of candidates) {
+    const uploadUrl =
+      typeof candidate === "object" && candidate !== null
+        ? (() => {
+          for (const key of ["upload_url", "uploadUrl", "uploadURL", "presignedUploadUrl"]) {
+            const value = /** @type {Record<string, unknown>} */ (candidate)[key];
+            if (typeof value === "string" && value.trim().length > 0) return value.trim();
+          }
+          return null;
+        })()
+        : null;
+    const assetUrn =
+      typeof candidate === "object" && candidate !== null
+        ? (() => {
+          for (const key of ["asset_urn", "assetUrn", "assetURN", "digitalMediaAssetUrn"]) {
+            const value = /** @type {Record<string, unknown>} */ (candidate)[key];
+            if (typeof value === "string" && value.trim().length > 0) return value.trim();
+          }
+          return null;
+        })()
+        : null;
+    if (uploadUrl || assetUrn) {
+      return { uploadUrl, assetUrn };
+    }
+  }
+
+  return { uploadUrl: null, assetUrn: null };
+}
+
+/**
+ * @param {string} uploadUrl
+ * @param {Buffer} imageBuffer
+ * @returns {Promise<void>}
+ */
+async function uploadImageBytesToLinkedIn(uploadUrl, imageBuffer) {
+  const uploadResponse = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "image/jpeg",
+    },
+    body: imageBuffer,
+  });
+
+  if (!uploadResponse.ok) {
+    throw new ComposioServiceError(
+      `LinkedIn image upload failed with status ${uploadResponse.status}`,
+      502,
+      "COMPOSIO_POST_FAILED",
+    );
+  }
+}
+
+/**
+ * @param {string} author
+ * @param {string} text
+ * @param {string[] | null} imageAssetUrns
+ */
+function buildLinkedInCreatePostParams(author, text, imageAssetUrns) {
+  /** @type {Record<string, unknown>} */
+  const params = {
+    author,
+    commentary: text,
+    visibility: "PUBLIC",
+    lifecycleState: "PUBLISHED",
+  };
+  if (Array.isArray(imageAssetUrns) && imageAssetUrns.length > 0) {
+    params.images = imageAssetUrns;
+  }
+  return params;
+}
+
+/**
+ * @param {import("@composio/core").Composio} client
+ * @param {string} userId
+ * @param {string} author
+ * @param {string} text
+ * @param {Buffer} imageBuffer
+ * @returns {Promise<{ successful?: boolean; error?: string | null; data?: Record<string, unknown> }>}
+ */
+async function createLinkedInPostWithImageUpload(client, userId, author, text, imageBuffer) {
+  const uploadRegistration = await client.tools.execute("LINKEDIN_REGISTER_IMAGE_UPLOAD", {
+    userId,
+    arguments: {
+      owner_urn: author,
+      recipe: "urn:li:digitalmediaRecipe:feedshare-image",
+      supported_upload_mechanism: ["SYNCHRONOUS_UPLOAD"],
+    },
+  });
+
+  if (!actionSucceeded(uploadRegistration)) {
+    const detail =
+      typeof uploadRegistration?.error === "string" && uploadRegistration.error.length > 0
+        ? uploadRegistration.error
+        : "LinkedIn image registration failed.";
+    throw new ComposioServiceError(detail, 502, "COMPOSIO_POST_FAILED");
+  }
+
+  const { uploadUrl, assetUrn } = extractLinkedInUploadMetadata(uploadRegistration.data);
+  if (!uploadUrl || !assetUrn) {
+    throw new ComposioServiceError(
+      "LinkedIn image registration did not return an upload URL and asset URN.",
+      502,
+      "COMPOSIO_POST_FAILED",
+    );
+  }
+
+  await uploadImageBytesToLinkedIn(uploadUrl, imageBuffer);
+  return client.tools.execute("LINKEDIN_CREATE_LINKED_IN_POST", {
+    userId,
+    arguments: buildLinkedInCreatePostParams(author, text, [assetUrn]),
+  });
 }
 
 /**
@@ -341,7 +592,10 @@ function extractExternalPostId(data) {
 }
 
 /**
- * Posts text (and optional LinkedIn image) via Composio SDK only — no direct LinkedIn REST calls.
+ * Posts text (and optional LinkedIn image) via Composio SDK.
+ * Text-only: LINKEDIN_GET_MY_INFO (author) + LINKEDIN_CREATE_LINKED_IN_POST.
+ * With image: same author resolution + write temp file + LINKEDIN_CREATE_LINKED_IN_POST
+ * with local image path (retrying one alternate path object shape on schema-like errors).
  * @param {string} userId
  * @param {"linkedin" | "twitter"} platform
  * @param {string} text
@@ -359,28 +613,28 @@ export async function executePost(userId, platform, text, imageBase64 = null) {
   const client = getClient();
   let response;
   try {
-    const entity = await client.getEntity(userId);
     if (platform === "linkedin") {
-      const author = await fetchLinkedInAuthorUrn(entity);
-      /** @type {Record<string, unknown>} */
-      const params = {
-        author,
-        commentary: text,
-        visibility: "PUBLIC",
-        lifecycleState: "PUBLISHED",
-      };
-      const img = normalizeImageForLinkedInPost(imageBase64);
-      if (img) {
-        params.images = [img];
+      const author = await fetchLinkedInAuthorUrn(client, userId);
+      if (!linkedInHasImageInput(imageBase64)) {
+        response = await client.tools.execute("LINKEDIN_CREATE_LINKED_IN_POST", {
+          userId,
+          arguments: buildLinkedInCreatePostParams(author, text, null),
+        });
+      } else {
+        try {
+          const { buffer: imageBuf } = await decodeAndCompressLinkedInImage(
+            /** @type {string} */(imageBase64),
+          );
+          response = await createLinkedInPostWithImageUpload(client, userId, author, text, imageBuf);
+        } catch (prepErr) {
+          if (prepErr instanceof ComposioServiceError) throw prepErr;
+          throw new ComposioServiceError("Could not prepare image for LinkedIn.", 400, "LINKEDIN_IMAGE_PREP_FAILED");
+        }
       }
-      response = await entity.execute({
-        actionName: "LINKEDIN_CREATE_LINKED_IN_POST",
-        params,
-      });
     } else {
-      response = await entity.execute({
-        actionName: "TWITTER_CREATE_TWEET",
-        params: { text },
+      response = await client.tools.execute("TWITTER_CREATE_TWEET", {
+        userId,
+        arguments: { text },
       });
     }
   } catch (err) {

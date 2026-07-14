@@ -84,9 +84,9 @@ export function isDatabaseEnabled() {
 export function twitterCredentialsConfigured() {
   return Boolean(
     env.TWITTER_API_KEY &&
-      env.TWITTER_API_SECRET &&
-      env.TWITTER_ACCESS_TOKEN &&
-      env.TWITTER_ACCESS_SECRET,
+    env.TWITTER_API_SECRET &&
+    env.TWITTER_ACCESS_TOKEN &&
+    env.TWITTER_ACCESS_SECRET,
   );
 }
 

@@ -12,12 +12,12 @@ export async function createServer() {
 
   const logger = isDev
     ? pino({
-        level: "info",
-        transport: {
-          target: "pino-pretty",
-          options: { colorize: true, translateTime: "SYS:standard" },
-        },
-      })
+      level: "info",
+      transport: {
+        target: "pino-pretty",
+        options: { colorize: true, translateTime: "SYS:standard" },
+      },
+    })
     : pino({ level: "warn" });
 
   const app = express();

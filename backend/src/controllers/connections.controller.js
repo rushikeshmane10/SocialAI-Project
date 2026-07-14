@@ -40,11 +40,15 @@ function sendComposioError(req, res, err, fallbackLogMessage) {
 
 export async function initiateConnection(req, res) {
   const platform = parsePlatform(req, res);
+
   if (!platform) return undefined;
   const userId = getUserId(req);
   try {
-    const redirectUrl = await getConnectionUrl(userId, platform);
-    return res.json({ redirectUrl });
+    const connection = await getConnectionUrl(userId, platform);
+    return res.json({
+      redirectUrl: connection.redirectUrl,
+      connectionId: connection.connectionId,
+    });
   } catch (err) {
     return sendComposioError(req, res, err, "composio initiate failed");
   }
@@ -149,21 +153,12 @@ export async function publishPost(req, res) {
       typeof user.composio_entity_id === "string" && user.composio_entity_id.trim().length > 0
         ? user.composio_entity_id.trim()
         : userId;
-    console.log("[publishPost] start", {
-      postId,
-      platform,
-      userId: String(userId).slice(0, 8),
-      composioEntityId: String(composioEntityId).slice(0, 8),
-      selectedTextLen: selectedText.length,
-      hasImage: Boolean(post.selected_image_base64),
-    });
     const result = await executePost(
       composioEntityId,
       platform,
       selectedText,
       post.selected_image_base64 ?? null,
     );
-    console.log("[publishPost] composio ok", { postId, platform, resultPostId: result.postId });
     return res.status(200).json({
       success: result.success,
       platform,
@@ -224,21 +219,12 @@ publishPost = async function publishPost(req, res) {
       typeof user.composio_entity_id === "string" && user.composio_entity_id.trim().length > 0
         ? user.composio_entity_id.trim()
         : userId;
-    console.log("[publishPost:override] start", {
-      postId,
-      platform,
-      userId: String(userId).slice(0, 8),
-      composioEntityId: String(composioEntityId).slice(0, 8),
-      selectedTextLen: typeof post.selected_text === "string" ? post.selected_text.length : 0,
-      hasImage: Boolean(post.selected_image_base64),
-    });
     const result = await executePost(
       composioEntityId,
       platform,
       post.selected_text,
       post.selected_image_base64 ?? null,
     );
-    console.log("[publishPost:override] composio ok", { postId, platform, resultPostId: result.postId });
     return res.status(200).json({
       success: true,
       platform,
