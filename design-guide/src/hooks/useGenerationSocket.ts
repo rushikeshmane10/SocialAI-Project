@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { io } from "socket.io-client";
 import { buildSocketAuthPayload, getSocketUrl } from "@/api/socket";
 import type { GenerationLifecycleEvent } from "@/types/generate";
@@ -10,6 +10,12 @@ type Props = {
 };
 
 export function useGenerationSocket({ requestId, onEvent, onSocketError }: Props) {
+  const onEventRef = useRef(onEvent);
+  const onSocketErrorRef = useRef(onSocketError);
+
+  onEventRef.current = onEvent;
+  onSocketErrorRef.current = onSocketError;
+
   useEffect(() => {
     if (!requestId) return;
 
@@ -24,23 +30,25 @@ export function useGenerationSocket({ requestId, onEvent, onSocketError }: Props
         { requestId },
         (ack: { ok?: boolean; message?: string } | undefined) => {
           if (!ack?.ok) {
-            onSocketError(ack?.message ?? "Could not subscribe to generation updates.");
+            onSocketErrorRef.current(
+              ack?.message ?? "Could not subscribe to generation updates.",
+            );
           }
         },
       );
     });
 
     socket.on("connect_error", (error) => {
-      onSocketError(error.message || "Realtime connection failed.");
+      onSocketErrorRef.current(error.message || "Realtime connection failed.");
     });
 
     socket.on("generation_lifecycle", (payload: GenerationLifecycleEvent) => {
       if (!payload || payload.requestId !== requestId) return;
-      onEvent(payload);
+      onEventRef.current(payload);
     });
 
     return () => {
       socket.disconnect();
     };
-  }, [requestId, onEvent, onSocketError]);
+  }, [requestId]);
 }

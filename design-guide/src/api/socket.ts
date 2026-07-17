@@ -1,4 +1,4 @@
-type SocketAuthPayload = {
+export type SocketAuthPayload = {
   token?: string;
   bypass?: boolean;
   bypassSecret?: string;

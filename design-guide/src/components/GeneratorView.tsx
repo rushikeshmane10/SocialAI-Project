@@ -5,7 +5,7 @@ import { SatisfactionPrompt } from "@/components/SatisfactionPrompt";
 import { TweetPreview } from "@/components/TweetPreview";
 import { SelectedPostDevicePreview } from "@/components/SelectedPostDevicePreview";
 import { StatusBanner } from "@/components/StatusBanner";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { RotateCcw } from "lucide-react";
 import { publishPost } from "@/api/client";
@@ -15,6 +15,14 @@ import type { GenerationLifecycleEvent, PostVariation } from "@/types/generate";
 import { DEFAULT_LLM_SELECTION, labelForLlmSelection, type LlmSelection } from "@/config/llmModels";
 
 type PostPhase = "idle" | "posting" | "done";
+
+function previewImageSrc(imageBase64?: string | null): string | null {
+  const base64Image = typeof imageBase64 === "string" ? imageBase64.trim() : "";
+  if (base64Image.length === 0) return null;
+  return base64Image.startsWith("data:image/")
+    ? base64Image
+    : `data:image/jpeg;base64,${base64Image}`;
+}
 
 export function GeneratorView() {
   const [draft, setDraft] = useState("");
@@ -39,6 +47,8 @@ export function GeneratorView() {
   const [llmSelection, setLlmSelection] = useState<LlmSelection>(DEFAULT_LLM_SELECTION);
   /** Shown on the preview device after picking a variation (matches selected draft). */
   const [selectedToneLabel, setSelectedToneLabel] = useState<string | null>(null);
+  /** Preview-only image for the selected variant (not persisted). */
+  const [selectedImageSrc, setSelectedImageSrc] = useState<string | null>(null);
 
   const loading = phase === "posting";
 
@@ -88,6 +98,16 @@ export function GeneratorView() {
     onSocketError,
   });
 
+  useEffect(() => {
+    if (!waitingForGeneration || !pendingRequestId) return;
+    const timer = setTimeout(() => {
+      setWaitingForGeneration(false);
+      setPendingRequestId(null);
+      setPickErr("Generation timeout: no response from server after 5 minutes.");
+    }, 5 * 60 * 1000);
+    return () => clearTimeout(timer);
+  }, [waitingForGeneration, pendingRequestId]);
+
   async function onGenerateAi() {
     setGenErr(null);
     setPickErr(null);
@@ -95,6 +115,7 @@ export function GeneratorView() {
     setSurveyPostId(null);
     setReadyToPost(false);
     setSelectedToneLabel(null);
+    setSelectedImageSrc(null);
     setGenBusy(true);
     try {
       const topic = aiTopic.trim();
@@ -128,6 +149,7 @@ export function GeneratorView() {
     setGenErr(null);
     setPickErr(null);
     setSelectedToneLabel(null);
+    setSelectedImageSrc(null);
     setReworkBusy(true);
     try {
       const tones =
@@ -178,6 +200,7 @@ export function GeneratorView() {
       });
       setDraft(v.text.trim());
       setSelectedToneLabel(v.tone_applied?.trim() || null);
+      setSelectedImageSrc(previewImageSrc(v.image_base64));
       setReadyToPost(true);
       setVariationModalOpen(false);
       setSurveyPostId(sourceId);
@@ -226,6 +249,7 @@ export function GeneratorView() {
     setPendingRequestId(null);
     setWaitingForGeneration(false);
     setSelectedToneLabel(null);
+    setSelectedImageSrc(null);
   }
 
   return (
@@ -329,6 +353,7 @@ export function GeneratorView() {
                   <SelectedPostDevicePreview
                     text={draft}
                     toneLabel={selectedToneLabel}
+                    imageSrc={selectedImageSrc}
                     loading={loading}
                     onSubmit={() => void onPost()}
                   />
