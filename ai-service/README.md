@@ -81,3 +81,17 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Health check: **`GET /health`**.
+
+## Publish (Composio) — not in ai-service
+
+Posting to LinkedIn/Twitter is **not** implemented here. The Python service only **generates** content; the Node **backend** publishes via Composio.
+
+| Stage | Service | What happens |
+|-------|---------|----------------|
+| Generate | **ai-service** (`POST /generate`, `/generate-async`) | LLM draft + optional image URL/base64 → callback to backend |
+| Select | **backend** | Saves `posts.selected_text`, `posts.selected_image_base64`, `status: selected` |
+| Publish | **backend** (`POST /connections/posts/:id/publish`) | `composio.service.js` → `@composio/core` tools |
+
+**Frontend entry:** `design-guide/src/api/client.ts` → `publishPost(postId, platform)`.
+
+Full route/body/env reference: **`../backend/COMPOSIO_PUBLISH.md`**.
