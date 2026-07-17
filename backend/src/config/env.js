@@ -37,10 +37,10 @@ const envSchema = z
     TWITTER_ACCESS_TOKEN: z.string().optional(),
     TWITTER_ACCESS_SECRET: z.string().optional(),
     COMPOSIO_API_KEY: z.string().optional(),
-    // TEST ONLY: entity id for /test/linkedin-image-post.
+    // TEST ONLY: user id for /test/linkedin-image-post.
     COMPOSIO_ENTITY_ID: z.string().optional(),
-    /** Optional override when LINKEDIN_GET_MY_INFO returns an unexpected shape (dev only). */
-    COMPOSIO_LINKEDIN_AUTHOR_URN: z.string().optional(),
+    /** Composio auth config id (ac_xxxx) used to initiate LinkedIn OAuth connections. */
+    COMPOSIO_LINKEDIN_AUTH_CONFIG_ID: z.string().optional(),
     /** Max decoded JPEG size (bytes) before sending to Composio LinkedIn post. */
     COMPOSIO_LINKEDIN_IMAGE_MAX_BYTES: z.coerce.number().min(50_000).max(5_000_000).default(900_000),
     /** Max longest edge (px) after resize for LinkedIn post images. */

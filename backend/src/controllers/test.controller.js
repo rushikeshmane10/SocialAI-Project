@@ -4,12 +4,12 @@ import { apiErrorBody } from "../utils/response.js";
 
 // TEST ONLY: ad-hoc endpoint to verify LinkedIn image posting via Composio.
 export async function testLinkedinImagePostHandler(req, res) {
-  const entityId = (
+  const userId = (
     env.COMPOSIO_ENTITY_ID ||
     (typeof process.env.COMPOSIO_ENTITY_ID === "string" ? process.env.COMPOSIO_ENTITY_ID : "")
   ).trim();
 
-  if (!entityId) {
+  if (!userId) {
     return res.status(400).json(
       apiErrorBody(
         "VALIDATION_ERROR",
@@ -19,7 +19,7 @@ export async function testLinkedinImagePostHandler(req, res) {
   }
 
   try {
-    const result = await testLinkedinImagePostViaComposio(entityId);
+    const result = await testLinkedinImagePostViaComposio(userId);
     return res.status(200).json({
       success: true,
       ...result,
