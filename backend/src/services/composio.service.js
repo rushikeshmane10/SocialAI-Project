@@ -32,7 +32,15 @@ function getClient() {
     );
   }
   if (!cachedClient) {
-    cachedClient = new Composio({ apiKey: env.COMPOSIO_API_KEY });
+    cachedClient = new Composio({
+      apiKey: env.COMPOSIO_API_KEY,
+      // Required (true is also the Node default, set explicitly so this doesn't silently change
+      // if the SDK's default ever flips): LINKEDIN_CREATE_LINKED_IN_POST's `images` field validates
+      // server-side as a `FileUploadable` dict, not a plain asset-URN string — passing a raw string
+      // fails with "Input should be a valid dictionary or instance of FileUploadable", confirmed live.
+      // With this on, the SDK turns a `File`/path passed as `images` into that dict for us.
+      autoUploadDownloadFiles: true,
+    });
   }
   return cachedClient;
 }
@@ -57,10 +65,10 @@ function appNameFor(platform) {
  */
 function getAuthConfigId(platform) {
   if (platform === "linkedin") {
-    const id = (env.COMPOSIO_LINKEDIN_AUTHOR_URN || "").trim();
+    const id = (env.COMPOSIO_LINKEDIN_AUTH_CONFIG_ID || "").trim();
     if (!id) {
       throw new ComposioServiceError(
-        "COMPOSIO_LINKEDIN_AUTHOR_URN is not set. Add it to your backend environment.",
+        "COMPOSIO_LINKEDIN_AUTH_CONFIG_ID is not set. Add it to your backend environment.",
         503,
         "COMPOSIO_NOT_CONFIGURED",
       );
@@ -89,7 +97,25 @@ function getAuthConfigId(platform) {
 
 function wrapSdkError(err, fallbackMessage) {
   if (err instanceof ComposioServiceError) return err;
-  return new ComposioServiceError(fallbackMessage, 502, "COMPOSIO_ERROR");
+  return new ComposioServiceError(describeSdkError(err, fallbackMessage), 502, "COMPOSIO_ERROR");
+}
+
+/**
+ * Composio wraps API failures in `ComposioToolExecutionError`, whose own `.message` is just
+ * "Error executing the tool X" — the real detail (HTTP status + API error body) lives on
+ * `.cause` (a `@composio/client` `APIError`, whose `.message` is `"${status} ${body.message}"`).
+ * Without this, real 4xx/5xx detail from Composio/LinkedIn/Twitter gets silently discarded.
+ * @param {unknown} err
+ * @param {string} fallback
+ * @returns {string}
+ */
+function describeSdkError(err, fallback) {
+  if (err instanceof Error) {
+    const cause = /** @type {{ cause?: unknown }} */ (err).cause;
+    if (cause instanceof Error && cause.message) return cause.message;
+    if (err.message) return err.message;
+  }
+  return fallback;
 }
 
 /**
@@ -346,17 +372,20 @@ function resolveLinkedInAuthorUrnFromGetMyInfoData(rawFromExecute) {
  * @returns {Promise<string>}
  */
 async function fetchLinkedInAuthorUrn(client, userId) {
-  const manual = (env.COMPOSIO_LINKEDIN_AUTHOR_URN || "").trim();
-  if (manual.startsWith("urn:li:person:")) {
-    return manual;
-  }
-
+  // Always resolved dynamically for every user; there is no static/env override in this path.
+  // Confirmed live against LINKEDIN_GET_MY_INFO: response is `{ data: { id: "<memberId>", ... } }`,
+  // e.g. `data.id === "pXfcnsVb3D"` (no "urn:li:person:" prefix) — the "id" key checked first below
+  // covers this directly; the rest of the candidate list is defensive for older/alternate shapes.
   let info;
   try {
-    info = await client.tools.execute("LINKEDIN_GET_MY_INFO", { userId, arguments: {} });
-  } catch {
+    info = await client.tools.execute("LINKEDIN_GET_MY_INFO", {
+      userId,
+      arguments: {},
+      dangerouslySkipVersionCheck: true,
+    });
+  } catch (err) {
     throw new ComposioServiceError(
-      "Could not load LinkedIn profile for posting.",
+      describeSdkError(err, "Could not load LinkedIn profile for posting."),
       502,
       "COMPOSIO_POST_FAILED",
     );
@@ -440,88 +469,12 @@ async function decodeAndCompressLinkedInImage(raw) {
   throw new ComposioServiceError("Could not compress image under max bytes.", 400, "LINKEDIN_IMAGE_PREP_FAILED");
 }
 
-/** @param {string | undefined} text */
-function isImageSchemaValidationError(text) {
-  if (typeof text !== "string" || text.trim().length === 0) return false;
-  return /(invalid|validation|schema|required|must|type|expected|images)/i.test(text);
-}
-
-/**
- * @param {unknown} rawUploadData
- * @returns {{ uploadUrl: string | null, assetUrn: string | null }}
- */
-function extractLinkedInUploadMetadata(rawUploadData) {
-  const root = normalizeActionData(rawUploadData);
-  const candidates = [root];
-  const wrapperKeys = ["data", "response", "result", "body", "output", "payload"];
-  for (const key of wrapperKeys) {
-    const inner = root[key];
-    if (inner && typeof inner === "object" && !Array.isArray(inner)) {
-      candidates.push(/** @type {Record<string, unknown>} */(inner));
-    } else if (typeof inner === "string" && inner.trim().startsWith("{")) {
-      const parsed = normalizeActionData(inner);
-      if (Object.keys(parsed).length > 0) candidates.push(parsed);
-    }
-  }
-
-  for (const candidate of candidates) {
-    const uploadUrl =
-      typeof candidate === "object" && candidate !== null
-        ? (() => {
-          for (const key of ["upload_url", "uploadUrl", "uploadURL", "presignedUploadUrl"]) {
-            const value = /** @type {Record<string, unknown>} */ (candidate)[key];
-            if (typeof value === "string" && value.trim().length > 0) return value.trim();
-          }
-          return null;
-        })()
-        : null;
-    const assetUrn =
-      typeof candidate === "object" && candidate !== null
-        ? (() => {
-          for (const key of ["asset_urn", "assetUrn", "assetURN", "digitalMediaAssetUrn"]) {
-            const value = /** @type {Record<string, unknown>} */ (candidate)[key];
-            if (typeof value === "string" && value.trim().length > 0) return value.trim();
-          }
-          return null;
-        })()
-        : null;
-    if (uploadUrl || assetUrn) {
-      return { uploadUrl, assetUrn };
-    }
-  }
-
-  return { uploadUrl: null, assetUrn: null };
-}
-
-/**
- * @param {string} uploadUrl
- * @param {Buffer} imageBuffer
- * @returns {Promise<void>}
- */
-async function uploadImageBytesToLinkedIn(uploadUrl, imageBuffer) {
-  const uploadResponse = await fetch(uploadUrl, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "image/jpeg",
-    },
-    body: imageBuffer,
-  });
-
-  if (!uploadResponse.ok) {
-    throw new ComposioServiceError(
-      `LinkedIn image upload failed with status ${uploadResponse.status}`,
-      502,
-      "COMPOSIO_POST_FAILED",
-    );
-  }
-}
-
 /**
  * @param {string} author
  * @param {string} text
- * @param {string[] | null} imageAssetUrns
+ * @param {File[] | null} images
  */
-function buildLinkedInCreatePostParams(author, text, imageAssetUrns) {
+function buildLinkedInCreatePostParams(author, text, images) {
   /** @type {Record<string, unknown>} */
   const params = {
     author,
@@ -529,52 +482,10 @@ function buildLinkedInCreatePostParams(author, text, imageAssetUrns) {
     visibility: "PUBLIC",
     lifecycleState: "PUBLISHED",
   };
-  if (Array.isArray(imageAssetUrns) && imageAssetUrns.length > 0) {
-    params.images = imageAssetUrns;
+  if (Array.isArray(images) && images.length > 0) {
+    params.images = images;
   }
   return params;
-}
-
-/**
- * @param {import("@composio/core").Composio} client
- * @param {string} userId
- * @param {string} author
- * @param {string} text
- * @param {Buffer} imageBuffer
- * @returns {Promise<{ successful?: boolean; error?: string | null; data?: Record<string, unknown> }>}
- */
-async function createLinkedInPostWithImageUpload(client, userId, author, text, imageBuffer) {
-  const uploadRegistration = await client.tools.execute("LINKEDIN_REGISTER_IMAGE_UPLOAD", {
-    userId,
-    arguments: {
-      owner_urn: author,
-      recipe: "urn:li:digitalmediaRecipe:feedshare-image",
-      supported_upload_mechanism: ["SYNCHRONOUS_UPLOAD"],
-    },
-  });
-
-  if (!actionSucceeded(uploadRegistration)) {
-    const detail =
-      typeof uploadRegistration?.error === "string" && uploadRegistration.error.length > 0
-        ? uploadRegistration.error
-        : "LinkedIn image registration failed.";
-    throw new ComposioServiceError(detail, 502, "COMPOSIO_POST_FAILED");
-  }
-
-  const { uploadUrl, assetUrn } = extractLinkedInUploadMetadata(uploadRegistration.data);
-  if (!uploadUrl || !assetUrn) {
-    throw new ComposioServiceError(
-      "LinkedIn image registration did not return an upload URL and asset URN.",
-      502,
-      "COMPOSIO_POST_FAILED",
-    );
-  }
-
-  await uploadImageBytesToLinkedIn(uploadUrl, imageBuffer);
-  return client.tools.execute("LINKEDIN_CREATE_LINKED_IN_POST", {
-    userId,
-    arguments: buildLinkedInCreatePostParams(author, text, [assetUrn]),
-  });
 }
 
 /**
@@ -594,8 +505,13 @@ function extractExternalPostId(data) {
 /**
  * Posts text (and optional LinkedIn image) via Composio SDK.
  * Text-only: LINKEDIN_GET_MY_INFO (author) + LINKEDIN_CREATE_LINKED_IN_POST.
- * With image: same author resolution + write temp file + LINKEDIN_CREATE_LINKED_IN_POST
- * with local image path (retrying one alternate path object shape on schema-like errors).
+ * With image: same author resolution, then a single LINKEDIN_CREATE_LINKED_IN_POST call with an
+ * in-memory `File` (built from the compressed buffer) as `images` — the SDK's auto-upload
+ * (`autoUploadDownloadFiles: true` in `getClient`) uploads it and builds the `FileUploadable` dict
+ * the tool's schema requires. Confirmed live: passing the pre-uploaded asset URN string from
+ * LINKEDIN_REGISTER_IMAGE_UPLOAD directly (the old approach) is rejected by Composio's backend
+ * validation ("Input should be a valid dictionary or instance of FileUploadable"), so that
+ * register-then-PUT pipeline no longer works against the current tool schema and was removed.
  * @param {string} userId
  * @param {"linkedin" | "twitter"} platform
  * @param {string} text
@@ -619,28 +535,40 @@ export async function executePost(userId, platform, text, imageBase64 = null) {
         response = await client.tools.execute("LINKEDIN_CREATE_LINKED_IN_POST", {
           userId,
           arguments: buildLinkedInCreatePostParams(author, text, null),
+          dangerouslySkipVersionCheck: true,
         });
       } else {
+        let file;
         try {
           const { buffer: imageBuf } = await decodeAndCompressLinkedInImage(
             /** @type {string} */(imageBase64),
           );
-          response = await createLinkedInPostWithImageUpload(client, userId, author, text, imageBuf);
+          file = new File([imageBuf], "post-image.jpg", { type: "image/jpeg" });
         } catch (prepErr) {
           if (prepErr instanceof ComposioServiceError) throw prepErr;
-          throw new ComposioServiceError("Could not prepare image for LinkedIn.", 400, "LINKEDIN_IMAGE_PREP_FAILED");
+          throw new ComposioServiceError(
+            describeSdkError(prepErr, "Could not prepare image for LinkedIn."),
+            400,
+            "LINKEDIN_IMAGE_PREP_FAILED",
+          );
         }
+        response = await client.tools.execute("LINKEDIN_CREATE_LINKED_IN_POST", {
+          userId,
+          arguments: buildLinkedInCreatePostParams(author, text, [file]),
+          dangerouslySkipVersionCheck: true,
+        });
       }
     } else {
       response = await client.tools.execute("TWITTER_CREATE_TWEET", {
         userId,
         arguments: { text },
+        dangerouslySkipVersionCheck: true,
       });
     }
   } catch (err) {
     if (err instanceof ComposioServiceError) throw err;
     throw new ComposioServiceError(
-      "Could not publish post via Composio.",
+      describeSdkError(err, "Could not publish post via Composio."),
       502,
       "COMPOSIO_POST_FAILED",
     );
@@ -660,14 +588,14 @@ export async function executePost(userId, platform, text, imageBase64 = null) {
 /**
  * TEST ONLY: `POST /test/linkedin-image-post` — same Composio path as production LinkedIn publish.
  * Optional `COMPOSIO_TEST_IMAGE_BASE64` (raw or data URL) attaches an image.
- * @param {string} entityId Composio entity id (see `COMPOSIO_ENTITY_ID`).
+ * @param {string} userId Composio user id (see `COMPOSIO_ENTITY_ID`).
  * @returns {Promise<{ success: true, postId?: string }>}
  */
-export async function testLinkedinImagePostViaComposio(entityId) {
+export async function testLinkedinImagePostViaComposio(userId) {
   const testImage =
     typeof process.env.COMPOSIO_TEST_IMAGE_BASE64 === "string" ? process.env.COMPOSIO_TEST_IMAGE_BASE64 : null;
   return executePost(
-    entityId,
+    userId,
     "linkedin",
     "Test post (SociaAI /test/linkedin-image-post)",
     testImage,

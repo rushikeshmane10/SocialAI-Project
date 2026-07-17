@@ -4,6 +4,8 @@ Short reference for posting a **selected** draft to LinkedIn or Twitter/X via [C
 
 > **Note:** Publish does **not** call the Python `ai-service`. The backend uses `@composio/core` directly. `ai-service` only generates draft text/images upstream; see `ai-service/README.md` → **Publish (Composio)**.
 
+> **Debugging this flow?** See [COMPOSIO_PUBLISH_FIXES.md](COMPOSIO_PUBLISH_FIXES.md) for the specific runtime failures found against the live Composio API and why the code below looks the way it does (version-check requirement, env var split, the `File`-based image upload).
+
 ## End-to-end flow
 
 ```
@@ -111,8 +113,10 @@ Base URL: `VITE_API_BASE_URL` (default `http://localhost:3001`).
 | Platform | Composio tools | Notes |
 |----------|----------------|-------|
 | **LinkedIn (text)** | `LINKEDIN_GET_MY_INFO` → `LINKEDIN_CREATE_LINKED_IN_POST` | Resolves author URN from profile |
-| **LinkedIn (image)** | Same author step → `LINKEDIN_REGISTER_IMAGE_UPLOAD` → PUT JPEG to presigned URL → `LINKEDIN_CREATE_LINKED_IN_POST` | Image from `posts.selected_image_base64`; compressed with `sharp` |
+| **LinkedIn (image)** | Same author step → `LINKEDIN_CREATE_LINKED_IN_POST` (single call) | Image from `posts.selected_image_base64`, compressed with `sharp`, passed as an in-memory `File` in `images`. The SDK's `autoUploadDownloadFiles: true` (set in `getClient`) uploads it and builds the `FileUploadable` dict the tool requires. |
 | **Twitter** | `TWITTER_CREATE_TWEET` | `{ text }` only |
+
+**Why no separate upload step:** an earlier version of this flow called `LINKEDIN_REGISTER_IMAGE_UPLOAD`, PUT the JPEG to the returned presigned URL, then passed the resulting `asset_urn` string into `LINKEDIN_CREATE_LINKED_IN_POST`'s `images` field. Confirmed live against the current tool schema (version `20260707_00`) that this now fails: `images` validates server-side as a `FileUploadable` dict, and a raw asset-URN string is rejected with `"Input should be a valid dictionary or instance of FileUploadable"`. Passing a `File` with auto-upload enabled is the form Composio's backend currently accepts.
 
 DB fields used at publish time:
 
@@ -142,14 +146,16 @@ Set in `backend/.env` (see `.env.example`):
 | Variable | Required | Purpose |
 |----------|----------|---------|
 | `COMPOSIO_API_KEY` | yes | Composio SDK |
-| `COMPOSIO_LINKEDIN_AUTHOR_URN` | yes (LinkedIn) | Auth config id for OAuth; optional `urn:li:person:…` override for posting |
+| `COMPOSIO_LINKEDIN_AUTH_CONFIG_ID` | yes (LinkedIn) | Auth config id (`ac_xxxx`) for OAuth. No production author-URN override exists — `executePost` always resolves the author URN per-user via `LINKEDIN_GET_MY_INFO`. |
 | `COMPOSIO_TWITTER_AUTH_CONFIG_ID` | yes (Twitter) | Auth config id for OAuth |
 | `COMPOSIO_LINKEDIN_IMAGE_MAX_BYTES` | no | JPEG size cap (default `900000`) |
 | `COMPOSIO_LINKEDIN_IMAGE_MAX_EDGE` | no | Max resize edge px (default `1600`) |
 | `COMPOSIO_LINKEDIN_IMAGE_JPEG_QUALITY_START` | no | Initial JPEG quality (default `82`) |
-| `COMPOSIO_ENTITY_ID` | test only | Entity for `POST /test/linkedin-image-post` |
+| `COMPOSIO_ENTITY_ID` | test only | User id for `POST /test/linkedin-image-post` |
 
 Routes mount only when `DATABASE_URL` is set (`src/routes/index.js`). Without `COMPOSIO_API_KEY`, Composio calls return `503` / `COMPOSIO_NOT_CONFIGURED`.
+
+**SDK note (`@composio/core` 0.6.11):** `composio.tools.execute(...)` throws `ComposioToolVersionRequiredError` unless a toolkit version is pinned or `dangerouslySkipVersionCheck: true` is passed per call — this SDK version resolves an unset toolkit version to `"latest"` and refuses to run it. All manual tool executions in `composio.service.js` pass `dangerouslySkipVersionCheck: true` for this reason. Trade-off: this accepts whatever toolkit version Composio currently serves rather than pinning one, so a future breaking schema change from Composio would surface at runtime instead of at upgrade time — pin `toolkitVersions` on the client instead if that trade-off is undesirable.
 
 ---
 
