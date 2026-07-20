@@ -11,7 +11,7 @@ const navItems = [
   { title: "Post to social media", url: "/", icon: PenLine },
   { title: "Connections", url: "/connections", icon: Link2 },
   { title: "LinkedIn Profile", url: "/linkedin-profile", icon: User },
-  { title: "Template Library", url: "/_authenticated/template-library", icon: BookOpen },
+  { title: "Template Library", url: "/template-library", icon: BookOpen },
   { title: "Preferences", url: "/preferences", icon: Settings },
 ];
 

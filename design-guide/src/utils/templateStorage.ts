@@ -2,6 +2,7 @@ export type TemplateModel = {
   id: string;
   title: string;
   content: string;
+  type?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -33,6 +34,7 @@ export function saveTemplate(template: Omit<TemplateModel, "createdAt" | "update
     id: template.id,
     title: template.title,
     content: template.content,
+    type: (template as any).type || null,
     createdAt: template.createdAt || now,
     updatedAt: template.updatedAt || now,
   };

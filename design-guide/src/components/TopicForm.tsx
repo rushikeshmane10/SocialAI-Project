@@ -1,7 +1,10 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import { motion } from "framer-motion";
 import { LLM_MODEL_OPTIONS, type LlmSelection, llmSelectionKey } from "@/config/llmModels";
 import { LinkedInContextCard } from "@/components/LinkedInContextCard";
+import { TemplatePickerDialog } from "@/components/TemplatePickerDialog";
+import { Button } from "@/components/ui/button";
+import type { TemplateModel } from "@/utils/templateStorage";
 
 function composeAvatar(topic: string): string {
   const t = topic.trim();
@@ -50,6 +53,8 @@ export function TopicForm({
 }: Props) {
   const toneGroupId = useId();
   const modelSelectId = useId();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<TemplateModel | null>(null);
 
   function toggleTone(option: Tone) {
     if (tones.includes(option)) {
@@ -74,12 +79,16 @@ export function TopicForm({
         </div>
         <div className="min-w-0 flex-1 space-y-5">
           <div>
-            <label
-              htmlFor="topic-field"
-              className="mb-2 block text-sm font-semibold text-foreground"
-            >
-              What&apos;s happening?
-            </label>
+            <div className="mb-2 flex items-center justify-between">
+              <label htmlFor="topic-field" className="block text-sm font-semibold text-foreground">
+                What&apos;s happening?
+              </label>
+              <div>
+                <Button variant="outline" size="sm" onClick={() => setPickerOpen(true)}>
+                  Templates
+                </Button>
+              </div>
+            </div>
             <textarea
               id="topic-field"
               value={topic}
@@ -94,6 +103,38 @@ export function TopicForm({
           <div>
             <LinkedInContextCard />
           </div>
+
+          <TemplatePickerDialog
+            open={pickerOpen}
+            onOpenChange={setPickerOpen}
+            onInsert={(t) => {
+              // show selected template in the UI card; do not insert into textarea
+              setSelectedTemplate(t);
+            }}
+          />
+
+          {selectedTemplate ? (
+            <div className="rounded-lg border border-border bg-card p-3 shadow-[var(--shadow-sm)]">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h4 className="truncate text-sm font-semibold text-foreground">{selectedTemplate.title}</h4>
+                    {selectedTemplate.type ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                        {selectedTemplate.type}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground line-clamp-3">{selectedTemplate.content}</p>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedTemplate(null)}>
+                    Clear
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           <div>
             <span id={toneGroupId} className="sr-only">

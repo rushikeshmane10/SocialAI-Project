@@ -6,11 +6,14 @@ import { listTemplates, saveTemplate, deleteTemplate, createTemplate } from "@/u
 import type { TemplateModel } from "@/utils/templateStorage";
 import { toast } from "sonner";
 
+const TYPE_OPTIONS = ["All", "Social Post", "Announcement", "Thread", "Article Intro", "Other"];
+
 export function TemplateList() {
   const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState<TemplateModel[]>([]);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<TemplateModel | null>(null);
+  const [filterType, setFilterType] = useState<string>("All");
 
   useEffect(() => {
     setLoading(true);
@@ -31,8 +34,8 @@ export function TemplateList() {
     setEditorOpen(true);
   }
 
-  function handleSave(payload: { id: string; title: string; content: string }) {
-    saveTemplate({ id: payload.id, title: payload.title, content: payload.content });
+  function handleSave(payload: { id: string; title: string; content: string; type?: string | null }) {
+    saveTemplate({ id: payload.id, title: payload.title, content: payload.content, type: payload.type });
     toast.success("Template saved");
     refresh();
   }
@@ -47,6 +50,8 @@ export function TemplateList() {
     refresh();
   }
 
+  const visible = templates.filter((t) => filterType === "All" || (t.type || "") === filterType);
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between gap-4">
@@ -57,6 +62,15 @@ export function TemplateList() {
         <div>
           <Button onClick={handleNew}>New Template</Button>
         </div>
+      </div>
+
+      <div className="mb-4 flex items-center gap-3">
+        <label className="text-sm text-muted-foreground">Filter</label>
+        <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground">
+          {TYPE_OPTIONS.map((opt) => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
       </div>
 
       {loading ? (
@@ -74,7 +88,7 @@ export function TemplateList() {
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {templates.map((t) => (
+          {visible.map((t) => (
             <TemplateCard key={t.id} template={t} onEdit={handleEdit} onDelete={handleDelete} />
           ))}
         </div>

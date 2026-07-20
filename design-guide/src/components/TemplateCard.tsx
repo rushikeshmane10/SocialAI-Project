@@ -29,7 +29,14 @@ export function TemplateCard({ template, onEdit, onDelete }: Props) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-3">
             <h4 className="truncate text-sm font-semibold text-foreground">{template.title}</h4>
-            <div className="text-xs text-muted-foreground">{new Date(template.updatedAt).toLocaleString()}</div>
+            <div className="flex items-center gap-2">
+              {template.type ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                  {template.type}
+                </span>
+              ) : null}
+              <div className="text-xs text-muted-foreground">{new Date(template.updatedAt).toLocaleString()}</div>
+            </div>
           </div>
 
           <p className={`mt-2 text-sm text-muted-foreground ${expanded ? "whitespace-pre-wrap" : "line-clamp-3"}`}>
