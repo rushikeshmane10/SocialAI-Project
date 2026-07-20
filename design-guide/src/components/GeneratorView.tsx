@@ -315,7 +315,7 @@ export function GeneratorView() {
                 <SatisfactionPrompt postId={surveyPostId} onDone={() => setSurveyPostId(null)} />
               ) : null}
 
-              <LinkedInContextCard />
+              {/* <LinkedInContextCard /> */}
 
               <TopicForm
                 topic={aiTopic}
