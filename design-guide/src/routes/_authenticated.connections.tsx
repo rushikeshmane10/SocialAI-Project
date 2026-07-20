@@ -6,9 +6,17 @@ import { Check, ExternalLink, AtSign, Globe } from "lucide-react";
 import {
   completeConnection,
   fetchConnectionStatus,
+  fetchLinkedInProfile,
   initiateConnection,
   type ConnectionPlatform,
 } from "@/api/connections";
+import type { ComposioLinkedInProfileResponse } from "@/types/connections";
+
+const LINKEDIN_PROFILE_STORAGE_KEY = "linkedinProfile";
+
+function saveLinkedInProfile(profile: ComposioLinkedInProfileResponse) {
+  localStorage.setItem(LINKEDIN_PROFILE_STORAGE_KEY, JSON.stringify(profile));
+}
 
 export const Route = createFileRoute("/_authenticated/connections")({
   validateSearch: (raw: Record<string, unknown>): { verify?: ConnectionPlatform } => {
@@ -26,7 +34,7 @@ export const Route = createFileRoute("/_authenticated/connections")({
 });
 
 function ConnectionsPage() {
-  const navigate = useNavigate();
+  const navigate = Route.useNavigate();
   const search = Route.useSearch();
   const [twitter, setTwitter] = useState(false);
   const [linkedin, setLinkedin] = useState(false);
@@ -59,6 +67,15 @@ function ConnectionsPage() {
       try {
         await completeConnection(verify);
         if (!cancelled) {
+          if (verify === "linkedin") {
+            try {
+              const profile = await fetchLinkedInProfile();
+              saveLinkedInProfile(profile);
+            } catch (e) {
+              setActionError(e instanceof Error ? e.message : "Could not fetch LinkedIn profile after verification");
+              return;
+            }
+          }
           await refreshStatus();
           void navigate({ search: {}, replace: true });
         }
@@ -92,6 +109,15 @@ function ConnectionsPage() {
     setBusy("verify");
     try {
       await completeConnection(platform);
+      if (platform === "linkedin") {
+        try {
+          const profile = await fetchLinkedInProfile();
+          saveLinkedInProfile(profile);
+        } catch (e) {
+          setActionError(e instanceof Error ? e.message : "Could not fetch LinkedIn profile after verification");
+          return;
+        }
+      }
       await refreshStatus();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Verification failed");
@@ -107,21 +133,21 @@ function ConnectionsPage() {
     connected: boolean;
     description: string;
   }[] = [
-    {
-      platform: "twitter",
-      name: "Twitter / X",
-      icon: AtSign,
-      connected: twitter,
-      description: "Connect your Twitter account to publish posts directly.",
-    },
-    {
-      platform: "linkedin",
-      name: "LinkedIn",
-      icon: Globe,
-      connected: linkedin,
-      description: "Connect your LinkedIn account to share professional content.",
-    },
-  ];
+      {
+        platform: "twitter",
+        name: "Twitter / X",
+        icon: AtSign,
+        connected: twitter,
+        description: "Connect your Twitter account to publish posts directly.",
+      },
+      {
+        platform: "linkedin",
+        name: "LinkedIn",
+        icon: Globe,
+        connected: linkedin,
+        description: "Connect your LinkedIn account to share professional content.",
+      },
+    ];
 
   return (
     <>
@@ -134,10 +160,7 @@ function ConnectionsPage() {
             transition={{ duration: 0.3 }}
           >
             <p className="mb-6 max-w-xl text-sm leading-relaxed text-muted-foreground">
-              Connect your publishing channels once. Use verify if you return manually after OAuth.
-              Optional: set Composio redirect with query{" "}
-              <code className="text-foreground">?verify=twitter</code> or{" "}
-              <code className="text-foreground">?verify=linkedin</code> to auto-verify on return.
+              Connect your social media accounts to publish content directly from one place.
             </p>
 
             {loadError ? (

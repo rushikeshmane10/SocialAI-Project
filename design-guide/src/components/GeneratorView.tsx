@@ -1,5 +1,6 @@
 import { PageHeader } from "@/components/PageHeader";
 import { TopicForm } from "@/components/TopicForm";
+import { LinkedInContextCard } from "@/components/LinkedInContextCard";
 import { VariationPickerModal } from "@/components/VariationPickerModal";
 import { SatisfactionPrompt } from "@/components/SatisfactionPrompt";
 import { TweetPreview } from "@/components/TweetPreview";
@@ -13,6 +14,7 @@ import { generateMockPosts, selectPostVariation } from "@/api/generate";
 import { useGenerationSocket } from "@/hooks/useGenerationSocket";
 import type { GenerationLifecycleEvent, PostVariation } from "@/types/generate";
 import { DEFAULT_LLM_SELECTION, labelForLlmSelection, type LlmSelection } from "@/config/llmModels";
+import { useLoading } from "@/components/LoadingOverlay";
 
 type PostPhase = "idle" | "posting" | "done";
 
@@ -25,6 +27,7 @@ function previewImageSrc(imageBase64?: string | null): string | null {
 }
 
 export function GeneratorView() {
+  const { withLoader } = useLoading();
   const [draft, setDraft] = useState("");
   const [phase, setPhase] = useState<PostPhase>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -126,12 +129,14 @@ export function GeneratorView() {
       if (tones.length !== 2) {
         throw new Error("Please select exactly 2 tones to generate two drafts.");
       }
-      const res = await generateMockPosts({
-        topic,
-        tones: [tones[0], tones[1]] as [string, string],
-        modelProvider: llmSelection.modelProvider,
-        modelName: llmSelection.modelName,
-      });
+      const res = await withLoader(() =>
+        generateMockPosts({
+          topic,
+          tones: [tones[0], tones[1]] as [string, string],
+          modelProvider: llmSelection.modelProvider,
+          modelName: llmSelection.modelName,
+        }),
+      );
       setVariations([]);
       setPostId(null);
       setVariationModalOpen(false);
@@ -162,16 +167,18 @@ export function GeneratorView() {
       if (tones.length !== 2) {
         throw new Error("Please keep two tones selected before regenerating.");
       }
-      const res = await generateMockPosts({
-        topic: aiTopic.trim(),
-        tones: [tones[0], tones[1]] as [string, string],
-        reworkBaseText: v.text,
-        reworkInstructions: instructions,
-        sourcePostId: v.sourcePostId ?? postId ?? undefined,
-        sourceVariationId: v.variation_id,
-        modelProvider: llmSelection.modelProvider,
-        modelName: llmSelection.modelName,
-      });
+      const res = await withLoader(() =>
+        generateMockPosts({
+          topic: aiTopic.trim(),
+          tones: [tones[0], tones[1]] as [string, string],
+          reworkBaseText: v.text,
+          reworkInstructions: instructions,
+          sourcePostId: v.sourcePostId ?? postId ?? undefined,
+          sourceVariationId: v.variation_id,
+          modelProvider: llmSelection.modelProvider,
+          modelName: llmSelection.modelName,
+        }),
+      );
       setVariations([]);
       setPostId(null);
       setVariationModalOpen(false);
@@ -194,10 +201,12 @@ export function GeneratorView() {
       if (!sourceId) {
         throw new Error("Generated post id is missing. Regenerate and try again.");
       }
-      await selectPostVariation(sourceId, {
-        variation_id: v.variation_id,
-        selected_text: v.text.trim(),
-      });
+      await withLoader(() =>
+        selectPostVariation(sourceId, {
+          variation_id: v.variation_id,
+          selected_text: v.text.trim(),
+        }),
+      );
       setDraft(v.text.trim());
       setSelectedToneLabel(v.tone_applied?.trim() || null);
       setSelectedImageSrc(previewImageSrc(v.image_base64));
@@ -223,8 +232,8 @@ export function GeneratorView() {
     }
     setPhase("posting");
     try {
-      await publishPost(postId, "linkedin");
-      setPickOk("Posted to LinkedIn");
+      await withLoader(() => publishPost(postId, "linkedin"));
+      setPickOk("Posted to social media");
       setPhase("done");
     } catch (e) {
       setPhase("idle");
@@ -254,7 +263,7 @@ export function GeneratorView() {
 
   return (
     <>
-      <PageHeader title="Post to X">
+      <PageHeader title="Post to social media">
         <button
           type="button"
           onClick={onReset}
@@ -306,6 +315,8 @@ export function GeneratorView() {
                 <SatisfactionPrompt postId={surveyPostId} onDone={() => setSurveyPostId(null)} />
               ) : null}
 
+              <LinkedInContextCard />
+
               <TopicForm
                 topic={aiTopic}
                 tones={aiTones}
@@ -318,7 +329,7 @@ export function GeneratorView() {
                 onGenerate={() => void onGenerateAi()}
               />
 
-              <motion.div
+              {/* <motion.div
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.25 }}
@@ -339,7 +350,7 @@ export function GeneratorView() {
                   aria-label="Post text"
                   className="w-full resize-none rounded-lg border border-input bg-background px-4 py-3 text-sm text-foreground shadow-[var(--shadow-sm)] placeholder:text-muted-foreground/40 transition-all duration-150 focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/15 disabled:opacity-50"
                 />
-              </motion.div>
+              </motion.div> */}
             </motion.div>
 
             <motion.div
@@ -368,7 +379,7 @@ export function GeneratorView() {
                         onClick={() => void onPost()}
                         className="flex h-10 w-full items-center justify-center rounded-lg bg-primary text-sm font-semibold text-primary-foreground shadow-[var(--shadow-card)] transition-all duration-150 hover:shadow-[var(--shadow-elevated)] hover:brightness-110 disabled:opacity-40 disabled:shadow-none"
                       >
-                        {loading ? "···" : "Post to X →"}
+                        {loading ? "···" : "Post to social media →"}
                       </button>
                     }
                   />

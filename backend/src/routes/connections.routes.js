@@ -4,12 +4,18 @@ import {
   getConnectionStatus,
   initiateConnection,
   publishPost,
+  getLinkedInProfileHandler,
 } from "../controllers/connections.controller.js";
 import { asyncHandler } from "../middlewares/asyncHandler.js";
 import { requireUserId } from "../middlewares/authenticate.js";
 
 export const connectionsRouter = Router();
 connectionsRouter.get("/connections/status", requireUserId, asyncHandler(getConnectionStatus));
+connectionsRouter.get(
+  "/connections/linkedin/profile",
+  requireUserId,
+  asyncHandler(getLinkedInProfileHandler),
+);
 connectionsRouter.post(
   "/connections/:platform/initiate",
   requireUserId,

@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { PenLine, Link2, Settings, LogOut, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { PenLine, Link2, Settings, LogOut, ChevronsLeft, ChevronsRight, User } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -8,8 +8,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 const STORAGE_KEY = "social-ai-nav-collapsed";
 
 const navItems = [
-  { title: "Post to X", url: "/", icon: PenLine },
+  { title: "Post to social media", url: "/", icon: PenLine },
   { title: "Connections", url: "/connections", icon: Link2 },
+  { title: "LinkedIn Profile", url: "/linkedin-profile", icon: User },
   { title: "Preferences", url: "/preferences", icon: Settings },
 ];
 

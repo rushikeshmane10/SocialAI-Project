@@ -3,6 +3,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useState } from "react";
 import { motion } from "framer-motion";
+import { useLoading } from "@/components/LoadingOverlay";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
@@ -16,6 +17,7 @@ export const Route = createFileRoute("/login")({
 
 function LoginPage() {
   const { isAuthenticated, login } = useAuth();
+  const { withLoader } = useLoading();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,14 +33,15 @@ function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      await login(email.trim(), password);
-      void navigate({ to: "/preferences", replace: true });
+      await withLoader(() => login(email.trim(), password));
+      void navigate({ to: "/", replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
       setLoading(false);
     }
   };
+
 
   return (
     <div className="flex min-h-screen bg-background">

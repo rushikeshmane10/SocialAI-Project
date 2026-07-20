@@ -107,7 +107,7 @@ export function SelectedPostDevicePreview({
         ) : (
           <>
             <Send className="h-4 w-4" />
-            Post to X
+            Post to social media
           </>
         )}
       </button>
