@@ -8,6 +8,7 @@ import "@fontsource/dm-sans/500.css";
 import "@fontsource/dm-sans/600.css";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { AuthProvider } from "@/hooks/use-auth";
+import { LoadingProvider } from "@/components/LoadingOverlay";
 
 import appCss from "../styles.css?url";
 
@@ -87,7 +88,9 @@ function RootComponent() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <Outlet />
+        <LoadingProvider>
+          <Outlet />
+        </LoadingProvider>
       </AuthProvider>
     </ThemeProvider>
   );

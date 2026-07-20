@@ -1,6 +1,7 @@
 import { useId } from "react";
 import { motion } from "framer-motion";
 import { LLM_MODEL_OPTIONS, type LlmSelection, llmSelectionKey } from "@/config/llmModels";
+import { LinkedInContextCard } from "@/components/LinkedInContextCard";
 
 function composeAvatar(topic: string): string {
   const t = topic.trim();
@@ -88,6 +89,10 @@ export function TopicForm({
               rows={4}
               className="w-full resize-none rounded-lg border border-input bg-background px-4 py-3 text-sm text-foreground shadow-[var(--shadow-sm)] placeholder:text-muted-foreground/40 transition-all duration-150 focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/15 disabled:opacity-50"
             />
+          </div>
+
+          <div>
+            <LinkedInContextCard />
           </div>
 
           <div>

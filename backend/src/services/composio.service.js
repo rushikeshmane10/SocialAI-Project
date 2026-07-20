@@ -601,3 +601,32 @@ export async function testLinkedinImagePostViaComposio(userId) {
     testImage,
   );
 }
+
+/**
+ * Fetch LinkedIn Profile via Composio LINKEDIN_GET_MY_INFO.
+ * @param {string} userId
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function fetchLinkedInProfile(userId) {
+  const client = getClient();
+  let response;
+  try {
+    response = await client.tools.execute("LINKEDIN_GET_MY_INFO", {
+      userId,
+      arguments: {},
+      dangerouslySkipVersionCheck: true,
+    });
+  } catch (err) {
+    throw wrapSdkError(err, "Could not load LinkedIn profile.");
+  }
+  
+  if (!actionSucceeded(response)) {
+    const detail =
+      typeof response?.error === "string" && response.error.length > 0
+        ? response.error
+        : "LinkedIn Get My Info failed.";
+    throw new ComposioServiceError(detail, 502, "COMPOSIO_PROFILE_FAILED");
+  }
+  
+  return normalizeActionData(response.data);
+}

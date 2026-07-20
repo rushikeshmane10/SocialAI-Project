@@ -1,199 +1,177 @@
-# Generation Pipeline (Text + Image)
+# Generation Flow (Frontend + Backend + AI Service)
 
-Short, exact reference for how generation works today across `frontend`, `backend`, and `ai-service`.
+A compact end-to-end reference for how Post generation works in this repository.
 
-## 1) End-to-End Flow
+## 1) Frontend request
 
-1. Frontend sends `POST /ai/generate` with topic + two tones.
-2. Backend validates and forwards to Python `POST /generate-async`.
-3. AI service runs generation twice (tone 1 + tone 2).
-4. AI service calls backend callback: `POST /ai/callback/generate-complete`.
-5. Backend optionally persists callback result, then emits Socket.IO event `generation_lifecycle` to room `generation:{requestId}`.
-6. Frontend receives event, shows 2 variations, user picks one.
+Source: `design-guide/src/api/generate.ts`
 
-Pattern: HTTP `202` for start + callback/socket for completion.
+Client call:
+- `generateMockPosts(body)` → `POST /ai/generate`
+- `selectPostVariation(postId, body)` → `POST /posts/:id/select-variation`
+- `publishPost(postId, "linkedin")` → `POST /connections/posts/:id/publish`
 
-## 2) Frontend Logic
+Request body for generation:
 
-Main files:
-- `frontend/src/pages/GeneratorPage.tsx`
-- `frontend/src/api/generate.ts`
-- `frontend/src/hooks/useGenerationSocket.ts`
-- `frontend/src/types/generate.ts`
+```ts
+export type GenerateMockPostsBody = {
+  topic: string;
+  tones: [string, string];
+  reworkBaseText?: string;
+  reworkInstructions?: string;
+  sourcePostId?: string;
+  sourceVariationId?: 1 | 2;
+  modelProvider?: "openai" | "groq" | "ollama";
+  modelName?: string;
+};
+```
 
-Request sent from frontend (`/ai/generate`):
+Response type:
 
-- `topic` (string)
-- `tones` (exactly 2 strings)
-- optional rework: `reworkBaseText`, `reworkInstructions`, `sourcePostId`, `sourceVariationId`
-- optional model override: `modelProvider` (`groq|openai|ollama`), `modelName`
+```ts
+export type GenerateStartResponse = {
+  ok: true;
+  status: "started";
+  requestId: string;
+  message: string;
+  insights?: GenerateInsights;
+};
+```
 
-Current UI model options:
+The UI sends exactly one API call to `/ai/generate` and then waits for the async socket callback.
 
-- Groq `llama-3.3-70b-versatile` (default)
-- OpenAI `gpt-4o-mini`
-- Ollama `llama3.1:8b`
+## 2) Backend Node.js behavior
 
-## 3) Backend Logic
+Route: `POST /ai/generate`
+- files: `backend/src/routes/ai.routes.js`, `backend/src/controllers/ai.controller.js`, `backend/src/validations/ai.validations.js`
+- `requireUserId` is applied when the database is enabled.
+- Request body is validated with `generateTweetBodySchema`.
 
-Main files:
-- `backend/src/controllers/ai.controller.js`
-- `backend/src/services/aiClient.service.js`
-- `backend/src/validations/ai.validations.js`
-- `backend/src/routes/ai.routes.js`
+Validation rules:
+- `topic`: string, max 200, min 3 unless rework mode.
+- `tones`: exactly 2 unique strings, max 40 chars each.
+- `reworkBaseText`: optional string, max 280.
+- `reworkInstructions`: optional string, max 400.
+- `sourcePostId`: optional UUID.
+- `sourceVariationId`: optional 1 or 2 (required when rework is present).
+- `modelProvider`: optional `openai | groq | ollama`.
+- `modelName`: optional string, max 128.
 
-`POST /ai/generate` validation:
+Backend transforms the request and proxies it to the AI worker:
 
-- `topic`: max 200; min 3 when not rework mode
-- `tones`: exactly 2 unique values, each max 40
-- `reworkBaseText`: max 280
-- `reworkInstructions`: max 400
-- `sourcePostId`: optional UUID
-- `sourceVariationId`: optional 1 or 2 (required with rework instructions)
-- `modelProvider`: `openai|groq|ollama` (optional)
-- `modelName`: max 128 (optional)
+```js
+{
+  topic,
+  tones,
+  profession: null,
+  audience: null,
+  vibe: null,
+  rework_base_text,
+  rework_instructions,
+  user_id,
+  model_provider,
+  model_name,
+}
+```
 
-Backend -> AI service payload (`POST /generate-async`):
+Backend response:
+- `202 Accepted`
+- body: `{ ok: true, status: "started", requestId, message, insights }`
 
-- `topic`, `tones`
-- `profession`, `audience`, `vibe` (currently `null` in this flow)
-- `rework_base_text`, `rework_instructions`
-- `user_id`
-- `model_provider`, `model_name`
+Callback route: `POST /ai/callback/generate-complete`
+- validates `generateCompleteCallbackSchema`
+- emits Socket.IO event `generation_lifecycle` to room `generation:{requestId}`
+- if `status === "succeeded"` and `userId` exists, may persist the generated post
+- returns `202 { ok: true }`
 
-Callback endpoint:
+Callback success payload:
 
-- `POST /ai/callback/generate-complete`
-- `status: "succeeded"` includes `result.variations` (2), optional `postId/model/pipeline`
-- `status: "failed"` includes `error.code`, `error.message`, optional `error.stage`
+```ts
+{
+  requestId: string;
+  status: "succeeded";
+  finishedAt: string; // ISO datetime
+  result: {
+    postId?: string | null;
+    variations: Array<{ variation_id: number; text: string; tone_applied?: string; estimated_length?: string; hashtags?: string[]; image_base64?: string | null }>;
+    model?: string | null;
+    pipeline?: unknown;
+  };
+  meta?: { userId?: string | null; topic?: string; tones?: string[]; sourceRequestId?: string };
+}
+```
 
-Parser limit for base64 callback payloads:
+Callback failure payload:
 
-- backend uses `express.json({ limit: env.JSON_BODY_LIMIT })`
-- default `JSON_BODY_LIMIT=1mb`
+```ts
+{
+  requestId: string;
+  status: "failed";
+  finishedAt: string;
+  error: { code: string; message: string; stage?: string };
+  result?: Record<string, unknown>;
+  meta?: { userId?: string | null; topic?: string; tones?: string[]; sourceRequestId?: string };
+}
+```
 
-## 4) AI Service Logic
+## 3) AI service behavior
 
-Main files:
-- `ai-service/app/routes/generate.py`
-- `ai-service/app/core/chains.py`
-- `ai-service/app/core/prompts.py`
-- `ai-service/app/core/llm.py`
-- `ai-service/app/core/image_gen.py`
+Source: `ai-service/app/routes/generate.py`, `ai-service/app/core/*.py`
 
-Endpoints:
+Internal worker endpoint:
+- `POST /generate-async`
+- payload includes `topic`, `tones`, optional `profession`, `audience`, `vibe`, rework fields, `user_id`, `model_provider`, `model_name`.
+- returns an async acknowledgement.
 
-- `POST /generate`: sync, single tone
-- `POST /generate-async`: async, two tones + callback
+Worker flow:
+1. Run text generation twice, once per tone.
+2. Build structured tweet output with `TweetDraftOutput`.
+3. Optionally derive `image_prompt` and generate image output.
+4. POST completion to backend callback.
 
-Request models:
+The backend may also call `POST /generate` synchronously in helper paths, but the main UI flow is async.
 
-- `GenerateRequest`: `topic`, `tone`, context fields, rework fields, optional model override
-- `GenerateAsyncRequest`: same + `tones` (length 2) + optional `user_id`
+## 4) End-to-end sequence
 
-## 5) Text Generation Pipeline (per tone)
+1. Frontend `GeneratorView` calls `generateMockPosts(body)`.
+2. Backend receives `POST /ai/generate`, validates payload, and proxies to the AI service.
+3. Backend returns `202` immediately with `requestId`.
+4. AI worker finishes generation and calls `POST /ai/callback/generate-complete`.
+5. Backend emits `generation_lifecycle` over Socket.IO to room `generation:{requestId}`.
+6. Frontend receives the socket event, shows two variations, and user picks one.
+7. The selection is persisted via `POST /posts/:id/select-variation`.
+8. Optional publish step uses `POST /connections/posts/:id/publish`.
 
-Inside `_generate_one(...)`:
+## 5) Key payload types
 
-1. Build tweet chain (`get_tweet_chain`) with `TWEET_SYSTEM`.
-2. Use structured output schema `TweetDraftOutput` (`draft`, max 280).
-3. Inputs: `topic`, `tone`, `profession`, `audience`, `vibe`, `rework_base_text`, `rework_instructions`.
-4. Normalize output (`normalize_draft`), reject empty draft.
+Frontend request:
+- `topic: string`
+- `tones: [string, string]`
+- `reworkBaseText?: string`
+- `reworkInstructions?: string`
+- `sourcePostId?: string`
+- `sourceVariationId?: 1 | 2`
+- `modelProvider?: "openai" | "groq" | "ollama"`
+- `modelName?: string`
 
-Prompt constraints enforced by system prompt/schema:
+Backend callback success fields:
+- `requestId`, `status`, `finishedAt`
+- `result.postId?`
+- `result.variations` with `variation_id`, `text`, optional `image_base64`
+- `meta.userId?`, `meta.topic?`, `meta.tones?`
 
-- one tweet only
-- max 280 chars
-- plain text (no markdown)
-- avoid hashtags/URLs unless requested
-- keep topic-grounded and tone-aligned
-- rework should preserve base intent + apply requested edits
+## 6) Where to look for code
 
-Async mode behavior:
+- Frontend request layer: `design-guide/src/api/generate.ts`
+- Frontend socket handling: `design-guide/src/hooks/useGenerationSocket.ts`
+- Backend route: `backend/src/routes/ai.routes.js`
+- Backend controller: `backend/src/controllers/ai.controller.js`
+- Backend validation: `backend/src/validations/ai.validations.js`
+- Backend AI client: `backend/src/services/aiClient.service.js`
+- AI service route: `ai-service/app/routes/generate.py`
+- AI generation chains: `ai-service/app/core/chains.py`, `ai-service/app/core/llm.py`, `ai-service/app/core/prompts.py`
 
-- `/generate-async` runs `_generate_one` twice (tone-1 then tone-2), each with timeout
-- callback returns two variations
+## 7) Short note
 
-## 6) Image Generation Pipeline (per tone)
-
-Step A: Visual prompt generation:
-
-- `get_visual_prompt_chain` with `VISUAL_SYSTEM`
-- input: generated text + tone
-- output: `image_prompt` (`VisualPromptOutput`, max 1000)
-
-Step B: Image model call:
-
-- file: `ai-service/app/core/image_gen.py`
-- provider used in active route: Pollinations (`flux`)
-- endpoint: `https://image.pollinations.ai/prompt/{encoded_prompt}`
-- params: `width=1024`, `height=1024`, `model=flux`, `nologo=true`, `enhance=false`, `safe=true`
-- timeout: connect 10s, read 60s, write/pool 10s
-- returned as `image_base64` (bytes -> base64)
-
-Failure behavior:
-
-- if visual/image fails, text is still returned
-- image section reports failed status/code (e.g., `IMAGE_GEN_FAILED`)
-
-## 7) Tone -> Image Style Mapping
-
-Used in `image_gen.py` as suffix added to visual prompt:
-
-- `humorous`: digital illustration, cartoon, playful, vibrant, comic
-- `professional`: clean corporate photography, minimal, muted, sharp
-- `casual`: warm candid lifestyle, natural light, relaxed
-- `inspirational`: cinematic, golden hour, epic wide-shot
-- fallback: modern digital art, high quality
-
-Final prompt sent to Pollinations:
-
-- `"{visual_prompt_from_llm}, {tone_style_suffix}"`
-
-## 8) Model/Tool Stack
-
-Text LLM backends (`ai-service/app/core/llm.py`):
-
-- OpenAI -> `ChatOpenAI`
-- Groq -> `ChatGroq`
-- Ollama -> `ChatOllama`
-
-Resolution rule:
-
-- request override (`model_provider`, `model_name`) if supplied
-- otherwise service defaults from settings
-
-Groq structured-output allowlist:
-
-- `llama-3.3-70b-versatile`
-- `llama-3.1-70b-versatile`
-
-Image stack in active path:
-
-- Pollinations Flux + base64 payload in callback
-
-Also present but not active in this route:
-
-- `ai-service/app/integrations/images.py` (OpenAI Images `dall-e-3`, URL output path)
-
-## 9) Key Config
-
-Backend:
-
-- `AI_SERVICE_URL`
-- `AI_SERVICE_TIMEOUT_MS`
-- `AI_SERVICE_GENERATE_TIMEOUT_MS`
-- `JSON_BODY_LIMIT`
-
-AI service:
-
-- `LLM_PROVIDER`
-- `GROQ_API_KEY`, `OPENAI_API_KEY`
-- `GROQ_MODEL`, `OPENAI_MODEL`, `OLLAMA_MODEL`
-- `NODE_CALLBACK_BASE_URL`, `GENERATE_CALLBACK_PATH`
-- `GENERATE_CALLBACK_TIMEOUT_SECONDS`
-- `GENERATE_CALLBACK_MAX_ATTEMPTS`
-- `GENERATE_CALLBACK_RETRY_BASE_SECONDS`
-
-Two tones in -> two text drafts + two optional base64 images out -> async callback/socket -> user picks one variation for posting.
+This flow is designed as a single frontend API call to `/ai/generate`, with the actual text generation handled asynchronously by the Python worker and results delivered by callback + Socket.IO. Keep UI state driven by `requestId`, not by direct LLM request/response timing.
 

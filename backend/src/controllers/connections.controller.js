@@ -6,6 +6,7 @@ import {
   getConnectionUrl,
   isConnected,
   saveConnectionStatus,
+  fetchLinkedInProfile,
 } from "../services/composio.service.js";
 import { apiErrorBody } from "../utils/response.js";
 
@@ -239,3 +240,28 @@ publishPost = async function publishPost(req, res) {
     return res.status(500).json(apiErrorBody("INTERNAL_ERROR", "Unexpected error handling Composio request"));
   }
 };
+
+export async function getLinkedInProfileHandler(req, res) {
+  const userId = getUserId(req);
+  const { User } = getModels();
+  const user = await User.findByPk(userId, {
+    attributes: ["linkedin_connected", "composio_entity_id"],
+  });
+  if (!user) {
+    return res.status(404).json(apiErrorBody("NOT_FOUND", "User not found"));
+  }
+  if (!user.linkedin_connected) {
+    return res.status(400).json(apiErrorBody("NOT_CONNECTED", "LinkedIn is not connected. Please connect your account first."));
+  }
+  try {
+    const composioEntityId =
+      typeof user.composio_entity_id === "string" && user.composio_entity_id.trim().length > 0
+        ? user.composio_entity_id.trim()
+        : userId;
+    const profile = await fetchLinkedInProfile(composioEntityId);
+    return res.json(profile);
+  } catch (err) {
+    console.error("[getLinkedInProfileHandler] failed", { userId, err });
+    return sendComposioError(req, res, err, "composio get profile failed");
+  }
+}

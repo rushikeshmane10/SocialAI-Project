@@ -13,6 +13,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated.index'
 import { Route as AuthenticatedPreferencesRouteImport } from './routes/_authenticated.preferences'
+import { Route as AuthenticatedLinkedinProfileRouteImport } from './routes/_authenticated.linkedin-profile'
 import { Route as AuthenticatedConnectionsRouteImport } from './routes/_authenticated.connections'
 
 const LoginRoute = LoginRouteImport.update({
@@ -35,6 +36,12 @@ const AuthenticatedPreferencesRoute =
     path: '/preferences',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedLinkedinProfileRoute =
+  AuthenticatedLinkedinProfileRouteImport.update({
+    id: '/linkedin-profile',
+    path: '/linkedin-profile',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedConnectionsRoute =
   AuthenticatedConnectionsRouteImport.update({
     id: '/connections',
@@ -46,11 +53,13 @@ export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
   '/login': typeof LoginRoute
   '/connections': typeof AuthenticatedConnectionsRoute
+  '/linkedin-profile': typeof AuthenticatedLinkedinProfileRoute
   '/preferences': typeof AuthenticatedPreferencesRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/connections': typeof AuthenticatedConnectionsRoute
+  '/linkedin-profile': typeof AuthenticatedLinkedinProfileRoute
   '/preferences': typeof AuthenticatedPreferencesRoute
   '/': typeof AuthenticatedIndexRoute
 }
@@ -59,19 +68,26 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/login': typeof LoginRoute
   '/_authenticated/connections': typeof AuthenticatedConnectionsRoute
+  '/_authenticated/linkedin-profile': typeof AuthenticatedLinkedinProfileRoute
   '/_authenticated/preferences': typeof AuthenticatedPreferencesRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/connections' | '/preferences'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/connections'
+    | '/linkedin-profile'
+    | '/preferences'
   fileRoutesByTo: FileRoutesByTo
-  to: '/login' | '/connections' | '/preferences' | '/'
+  to: '/login' | '/connections' | '/linkedin-profile' | '/preferences' | '/'
   id:
     | '__root__'
     | '/_authenticated'
     | '/login'
     | '/_authenticated/connections'
+    | '/_authenticated/linkedin-profile'
     | '/_authenticated/preferences'
     | '/_authenticated/'
   fileRoutesById: FileRoutesById
@@ -111,6 +127,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPreferencesRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/linkedin-profile': {
+      id: '/_authenticated/linkedin-profile'
+      path: '/linkedin-profile'
+      fullPath: '/linkedin-profile'
+      preLoaderRoute: typeof AuthenticatedLinkedinProfileRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/connections': {
       id: '/_authenticated/connections'
       path: '/connections'
@@ -123,12 +146,14 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteChildren {
   AuthenticatedConnectionsRoute: typeof AuthenticatedConnectionsRoute
+  AuthenticatedLinkedinProfileRoute: typeof AuthenticatedLinkedinProfileRoute
   AuthenticatedPreferencesRoute: typeof AuthenticatedPreferencesRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedConnectionsRoute: AuthenticatedConnectionsRoute,
+  AuthenticatedLinkedinProfileRoute: AuthenticatedLinkedinProfileRoute,
   AuthenticatedPreferencesRoute: AuthenticatedPreferencesRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
 }

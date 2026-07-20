@@ -2,6 +2,7 @@ import type {
   ConnectionCallbackResponse,
   ConnectionStatusResponse,
   InitiateConnectionResponse,
+  ComposioLinkedInProfileResponse,
 } from "@/types/connections";
 import { getJson, postJson } from "./client";
 
@@ -21,4 +22,8 @@ export async function completeConnection(
   platform: ConnectionPlatform,
 ): Promise<ConnectionCallbackResponse> {
   return getJson<ConnectionCallbackResponse>(`/connections/${platform}/callback`);
+}
+
+export async function fetchLinkedInProfile(): Promise<ComposioLinkedInProfileResponse> {
+  return getJson<ComposioLinkedInProfileResponse>("/connections/linkedin/profile");
 }
