@@ -113,7 +113,7 @@ export function LinkedInContextCard() {
         </div>
       </div>
 
-      <p className="mt-3 text-xs text-muted-foreground">Your LinkedIn profile will be used to personalize AI-generated posts.</p>
+     
     </div>
   );
 }

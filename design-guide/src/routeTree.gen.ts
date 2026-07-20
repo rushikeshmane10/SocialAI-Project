@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated.index'
+import { Route as AuthenticatedTemplateLibraryRouteImport } from './routes/_authenticated.template-library'
 import { Route as AuthenticatedPreferencesRouteImport } from './routes/_authenticated.preferences'
 import { Route as AuthenticatedLinkedinProfileRouteImport } from './routes/_authenticated.linkedin-profile'
 import { Route as AuthenticatedConnectionsRouteImport } from './routes/_authenticated.connections'
@@ -30,6 +31,12 @@ const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedTemplateLibraryRoute =
+  AuthenticatedTemplateLibraryRouteImport.update({
+    id: '/template-library',
+    path: '/template-library',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedPreferencesRoute =
   AuthenticatedPreferencesRouteImport.update({
     id: '/preferences',
@@ -55,12 +62,14 @@ export interface FileRoutesByFullPath {
   '/connections': typeof AuthenticatedConnectionsRoute
   '/linkedin-profile': typeof AuthenticatedLinkedinProfileRoute
   '/preferences': typeof AuthenticatedPreferencesRoute
+  '/template-library': typeof AuthenticatedTemplateLibraryRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/connections': typeof AuthenticatedConnectionsRoute
   '/linkedin-profile': typeof AuthenticatedLinkedinProfileRoute
   '/preferences': typeof AuthenticatedPreferencesRoute
+  '/template-library': typeof AuthenticatedTemplateLibraryRoute
   '/': typeof AuthenticatedIndexRoute
 }
 export interface FileRoutesById {
@@ -70,6 +79,7 @@ export interface FileRoutesById {
   '/_authenticated/connections': typeof AuthenticatedConnectionsRoute
   '/_authenticated/linkedin-profile': typeof AuthenticatedLinkedinProfileRoute
   '/_authenticated/preferences': typeof AuthenticatedPreferencesRoute
+  '/_authenticated/template-library': typeof AuthenticatedTemplateLibraryRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
 }
 export interface FileRouteTypes {
@@ -80,8 +90,15 @@ export interface FileRouteTypes {
     | '/connections'
     | '/linkedin-profile'
     | '/preferences'
+    | '/template-library'
   fileRoutesByTo: FileRoutesByTo
-  to: '/login' | '/connections' | '/linkedin-profile' | '/preferences' | '/'
+  to:
+    | '/login'
+    | '/connections'
+    | '/linkedin-profile'
+    | '/preferences'
+    | '/template-library'
+    | '/'
   id:
     | '__root__'
     | '/_authenticated'
@@ -89,6 +106,7 @@ export interface FileRouteTypes {
     | '/_authenticated/connections'
     | '/_authenticated/linkedin-profile'
     | '/_authenticated/preferences'
+    | '/_authenticated/template-library'
     | '/_authenticated/'
   fileRoutesById: FileRoutesById
 }
@@ -120,6 +138,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/template-library': {
+      id: '/_authenticated/template-library'
+      path: '/template-library'
+      fullPath: '/template-library'
+      preLoaderRoute: typeof AuthenticatedTemplateLibraryRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/preferences': {
       id: '/_authenticated/preferences'
       path: '/preferences'
@@ -148,6 +173,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedConnectionsRoute: typeof AuthenticatedConnectionsRoute
   AuthenticatedLinkedinProfileRoute: typeof AuthenticatedLinkedinProfileRoute
   AuthenticatedPreferencesRoute: typeof AuthenticatedPreferencesRoute
+  AuthenticatedTemplateLibraryRoute: typeof AuthenticatedTemplateLibraryRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
 }
 
@@ -155,6 +181,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedConnectionsRoute: AuthenticatedConnectionsRoute,
   AuthenticatedLinkedinProfileRoute: AuthenticatedLinkedinProfileRoute,
   AuthenticatedPreferencesRoute: AuthenticatedPreferencesRoute,
+  AuthenticatedTemplateLibraryRoute: AuthenticatedTemplateLibraryRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
 }
 
