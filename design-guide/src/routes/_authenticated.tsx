@@ -2,6 +2,7 @@ import { createFileRoute, Navigate, Outlet, useRouterState } from "@tanstack/rea
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "@/hooks/use-auth";
 import { AppNavRail } from "@/components/AppNavRail";
+import { PageHeaderProvider, PageHeaderShell } from "@/components/PageHeader";
 
 export const Route = createFileRoute("/_authenticated")({
   component: AuthenticatedLayout,
@@ -16,21 +17,26 @@ function AuthenticatedLayout() {
   }
 
   return (
-    <div className="flex min-h-screen w-full bg-background">
+    <div className="flex h-screen min-h-screen w-full overflow-hidden bg-background">
       <AppNavRail />
-      <main className="flex flex-1 flex-col overflow-hidden">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={pathname}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.22, ease: [0.25, 0.46, 0.45, 0.94] }}
-            className="flex flex-1 flex-col"
-          >
-            <Outlet />
-          </motion.div>
-        </AnimatePresence>
+      <main className="flex h-screen min-h-0 flex-1 flex-col overflow-hidden">
+        <PageHeaderProvider>
+          <PageHeaderShell />
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={pathname}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.22, ease: [0.25, 0.46, 0.45, 0.94] }}
+              className="flex flex-1 min-h-0 flex-col"
+            >
+              <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
+                <Outlet />
+              </div>
+            </motion.div>
+          </AnimatePresence>
+        </PageHeaderProvider>
       </main>
     </div>
   );

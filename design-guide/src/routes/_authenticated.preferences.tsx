@@ -3,17 +3,18 @@ import { PageHeader } from "@/components/PageHeader";
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { fetchPreferencesMe, logPreferences } from "@/api/preferences";
+import { useLoading } from "@/components/LoadingOverlay";
 import { PREFERENCE_QUESTIONS } from "@/config/preferenceQuestions";
 
-export const Route = createFileRoute("/_authenticated/preferences")({
-  head: () => ({
-    meta: [
-      { title: "Preferences — Social AI" },
-      { name: "description", content: "Set your content preferences for AI-generated posts." },
-    ],
-  }),
-  component: PreferencesPage,
-});
+// export const Route = createFileRoute("/_authenticated/preferences")({
+//   head: () => ({
+//     meta: [
+//       { title: "Preferences — Social AI" },
+//       { name: "description", content: "Set your content preferences for AI-generated posts." },
+//     ],
+//   }),
+//   component: PreferencesPage,
+// });
 
 function initialAnswers(): Record<string, string> {
   return Object.fromEntries(PREFERENCE_QUESTIONS.map((q) => [q.id, ""]));
@@ -28,8 +29,9 @@ function mergeAnswersFromApi(raw: Record<string, string> | undefined): Record<st
   return next;
 }
 
-function PreferencesPage() {
+export default function PreferencesPage() {
   const navigate = useNavigate();
+  const { withLoader } = useLoading();
   const [answers, setAnswers] = useState<Record<string, string>>(initialAnswers);
   const [savedSnapshot, setSavedSnapshot] = useState<Record<string, string> | null>(null);
   const [loadState, setLoadState] = useState<"loading" | "ok" | "error">("loading");
@@ -43,7 +45,7 @@ function PreferencesPage() {
       setLoadState("loading");
       setLoadError(null);
       try {
-        const { answers: raw } = await fetchPreferencesMe();
+        const { answers: raw } = await withLoader(() => fetchPreferencesMe());
         if (cancelled) return;
         const merged = mergeAnswersFromApi(raw);
         setAnswers(merged);
@@ -93,113 +95,102 @@ function PreferencesPage() {
 
   return (
     <>
-      <PageHeader title="Preferences" />
-      <div className="flex-1 overflow-y-auto">
-        <div className="px-8 py-8 lg:px-12">
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
+     
+<div className="flex-1 mt-10">
+  {/* Header */}
+  <div className="max-w-7xl mx-auto   pb-20">
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+    >
+      {loadState === "error" ? (
+        <p
+          className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+          role="alert"
+        >
+          {loadError}
+        </p>
+      ) : null}
+
+      {loadState === "loading" ? (
+        <p className="mb-6 text-sm text-slate-500" aria-live="polite">
+          Loading your preferences…
+        </p>
+      ) : null}
+
+      <div className="mb-8 flex items-center gap-3">
+        <div className="h-8 w-1 bg-[#5d5cde] rounded-full" />
+        <h2 className="text-xl font-bold text-slate-800">Your preferences</h2>
+      </div>
+
+      <form onSubmit={(e) => void onSubmit(e)}>
+        {error ? (
+          <p
+            className="mb-6 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+            role="alert"
           >
-            <p className="mb-6 max-w-xl text-sm leading-relaxed text-muted-foreground">
-              Customize your experience. This helps us tailor your content. Answers are saved to
-              your profile in the database.
-            </p>
+            {error}
+          </p>
+        ) : null}
 
-            {loadState === "error" ? (
-              <p
-                className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive"
-                role="alert"
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {PREFERENCE_QUESTIONS.map((q, i) => (
+            <motion.article
+              key={q.id}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.06, duration: 0.3 }}
+              className="flex flex-col bg-white border border-slate-100 rounded-custom p-6 shadow-premium shadow-premium-hover transition-all duration-300 hover:border-[#5d5cde]/20"
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-[10px] font-bold tracking-widest uppercase text-[#5d5cde]/60 bg-[#5d5cde]/5 px-2 py-1 rounded">
+                  {i + 1} · {q.id}
+                </span>
+              </div>
+
+              <label
+                className="block text-lg font-bold text-slate-800 mb-2"
+                htmlFor={`pref-${q.id}`}
               >
-                {loadError}
-              </p>
-            ) : null}
-
-            {loadState === "ok" && savedSnapshot ? (
-              <section className="mb-8" aria-labelledby="pref-saved-heading">
-                <h2 id="pref-saved-heading" className="mb-3 text-sm font-semibold text-foreground">
-                  Your saved preferences
-                </h2>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  {PREFERENCE_QUESTIONS.map((q) => {
-                    const text = savedSnapshot[q.id]?.trim();
-                    return (
-                      <div
-                        key={q.id}
-                        className="rounded-xl border border-border bg-card p-4 shadow-[var(--shadow-sm)]"
-                      >
-                        <p className="text-xs font-medium text-muted-foreground">{q.label}</p>
-                        <p className="mt-1 text-sm text-card-foreground">{text ? text : "—"}</p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            ) : loadState === "loading" ? (
-              <p className="mb-6 text-sm text-muted-foreground" aria-live="polite">
-                Loading your preferences…
-              </p>
-            ) : null}
-
-            <form onSubmit={(e) => void onSubmit(e)} className="space-y-6">
-              {error ? (
-                <p
-                  className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive"
-                  role="alert"
-                >
-                  {error}
-                </p>
+                {q.label}
+              </label>
+              {q.helper ? (
+                <p className="text-sm text-slate-500 mb-4">{q.helper}</p>
               ) : null}
 
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {PREFERENCE_QUESTIONS.map((q, i) => (
-                  <motion.div
-                    key={q.id}
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.06, duration: 0.3 }}
-                    className="rounded-xl border border-border bg-card p-5 shadow-[var(--shadow-sm)]"
-                  >
-                    <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-                      <span className="font-mono">{i + 1}</span>
-                      <span aria-hidden>·</span>
-                      <span className="font-mono">{q.id}</span>
-                    </div>
-                    <label
-                      className="block text-sm font-medium text-card-foreground"
-                      htmlFor={`pref-${q.id}`}
-                    >
-                      {q.label}
-                    </label>
-                    {q.helper ? (
-                      <p className="mt-1 text-xs text-muted-foreground">{q.helper}</p>
-                    ) : null}
-                    <textarea
-                      id={`pref-${q.id}`}
-                      rows={3}
-                      placeholder={q.placeholder}
-                      value={answers[q.id] ?? ""}
-                      onChange={(e) => setField(q.id, e.target.value)}
-                      disabled={busy || loadState === "loading"}
-                      className="mt-3 w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground shadow-[var(--shadow-sm)] placeholder:text-muted-foreground/40 transition-all focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/15 disabled:opacity-50"
-                    />
-                  </motion.div>
-                ))}
-              </div>
-
-              <div className="flex justify-end">
-                <button
-                  type="submit"
-                  className="flex h-10 items-center rounded-lg bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-card)] transition-all hover:brightness-110 disabled:opacity-40"
-                  disabled={busy || !allFilled || loadState === "loading"}
-                >
-                  {busy ? "Saving…" : "Save"}
-                </button>
-              </div>
-            </form>
-          </motion.div>
+              <textarea
+                id={`pref-${q.id}`}
+                rows={3}
+                placeholder={q.placeholder}
+                value={answers[q.id] ?? ""}
+                onChange={(e) => setField(q.id, e.target.value)}
+                disabled={busy || loadState === "loading"}
+                className="mt-auto w-full resize-none rounded-custom border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 transition-all focus:border-[#5d5cde] focus:outline-none focus:ring-2 focus:ring-[#5d5cde]/15 disabled:opacity-50"
+              />
+            </motion.article>
+          ))}
         </div>
-      </div>
+
+        <footer className="mt-12 flex justify-end items-center gap-4 border-t border-slate-200 pt-8">
+          <button
+            type="button"
+            className="px-6 py-2.5 text-slate-500 font-medium hover:text-slate-700 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="bg-[#5d5cde] hover:bg-[#5d5cde]/90 text-white px-10 py-3 rounded-custom font-bold shadow-lg shadow-[#5d5cde]/25 transition-all transform active:scale-95 disabled:opacity-40"
+            disabled={busy || !allFilled || loadState === "loading"}
+          >
+            {busy ? "Saving…" : "Save Preferences"}
+          </button>
+        </footer>
+      </form>
+    </motion.div>
+  </div>
+</div>
     </>
   );
 }

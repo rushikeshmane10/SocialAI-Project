@@ -38,6 +38,8 @@ export async function generateTweetHandlerLegacy(req, res) {
       {
         topic: topicForGeneration,
         tones,
+        linkedin_profile: parsed.data.linkedinProfile ?? null,
+        template_context: parsed.data.templateContext ?? null,
         profession: null,
         audience: null,
         vibe: null,
@@ -78,6 +80,8 @@ export async function generateTweetHandlerPersist(req, res) {
     const started = await startGenerateDraftJob(env, {
       topic: topicForGeneration,
       tones,
+      linkedin_profile: parsed.data.linkedinProfile ?? null,
+      template_context: parsed.data.templateContext ?? null,
       profession: null,
       audience: null,
       vibe: null,

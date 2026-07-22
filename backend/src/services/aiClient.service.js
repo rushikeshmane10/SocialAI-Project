@@ -86,6 +86,8 @@ export function parseGeneratePipelineResponse(json) {
  * @param {{
  *   topic: string;
  *   tones: [string, string];
+ *   linkedin_profile?: string | null;
+ *   template_context?: string | null;
  *   profession?: string | null;
  *   audience?: string | null;
  *   vibe?: string | null;
@@ -104,6 +106,14 @@ export async function startGenerateDraftJob(env, input, requestId) {
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    if (input.linkedin_profile || input.template_context) {
+      console.log("Calling Python AI service with context", {
+        requestId,
+        linkedin_profile: input.linkedin_profile,
+        template_context: input.template_context,
+      });
+    }
+
     const res = await fetch(url, {
       method: "POST",
       headers: {
@@ -113,6 +123,8 @@ export async function startGenerateDraftJob(env, input, requestId) {
       body: JSON.stringify({
         topic: input.topic,
         tones: input.tones,
+        linkedin_profile: input.linkedin_profile ?? null,
+        template_context: input.template_context ?? null,
         profession: input.profession ?? null,
         audience: input.audience ?? null,
         vibe: input.vibe ?? null,
@@ -239,6 +251,8 @@ export async function generateDraft(env, input, requestId) {
  * @param {{
  *   topic: string;
  *   tones: [string, string];
+ *   linkedin_profile?: string | null;
+ *   template_context?: string | null;
  *   profession?: string | null;
  *   audience?: string | null;
  *   vibe?: string | null;
@@ -251,6 +265,8 @@ export async function generateDraftVariations(env, input, requestId) {
   const [tone1, tone2] = input.tones;
   const base = {
     topic: input.topic,
+    linkedin_profile: input.linkedin_profile ?? null,
+    template_context: input.template_context ?? null,
     profession: input.profession ?? null,
     audience: input.audience ?? null,
     vibe: input.vibe ?? null,

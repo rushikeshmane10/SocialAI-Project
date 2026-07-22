@@ -13,6 +13,8 @@ class GenerateRequest(BaseModel):
     vibe: str | None = Field(default=None, max_length=200)
     rework_base_text: str | None = Field(default=None, max_length=280)
     rework_instructions: str | None = Field(default=None, max_length=400)
+    linkedin_profile: str | None = Field(default=None, max_length=2000)
+    template_context: str | None = Field(default=None, max_length=5000)
     model_provider: LlmProviderName | None = None
     model_name: str | None = Field(default=None, max_length=128)
 
@@ -25,6 +27,8 @@ class GenerateAsyncRequest(BaseModel):
     vibe: str | None = Field(default=None, max_length=200)
     rework_base_text: str | None = Field(default=None, max_length=280)
     rework_instructions: str | None = Field(default=None, max_length=400)
+    linkedin_profile: str | None = Field(default=None, max_length=2000)
+    template_context: str | None = Field(default=None, max_length=5000)
     user_id: str | None = Field(default=None, max_length=64)
     model_provider: LlmProviderName | None = None
     model_name: str | None = Field(default=None, max_length=128)
