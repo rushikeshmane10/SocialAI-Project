@@ -5,6 +5,8 @@ import { postJson } from "./client";
 export type GenerateMockPostsBody = {
   topic: string;
   tones: [string, string];
+  linkedinProfile?: string;
+  templateContext?: string;
   reworkBaseText?: string;
   reworkInstructions?: string;
   /** When reworking, the draft post id that contained the base variation (stored in post_rework_logs.source_post_id). */

@@ -18,6 +18,8 @@ export const generateTweetBodySchema = z
       (v) => (v === "" || v === null || v === undefined ? undefined : v),
       z.coerce.number().int().min(1).max(2).optional(),
     ),
+    linkedinProfile: z.preprocess((v) => (v === "" || v === null ? undefined : v), z.string().trim().max(2000).optional()),
+    templateContext: z.preprocess((v) => (v === "" || v === null ? undefined : v), z.string().trim().max(5000).optional()),
     modelProvider: z.enum(["openai", "groq", "ollama"]).optional(),
     modelName: z.string().trim().max(128).optional(),
   })

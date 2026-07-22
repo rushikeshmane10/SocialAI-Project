@@ -34,9 +34,13 @@ function resolveProfileImage(profile: ComposioLinkedInProfileResponse): string {
   return "";
 }
 
-export function LinkedInContextCard() {
+type Props = {
+  useProfile: boolean;
+  onUseProfileChange: (value: boolean) => void;
+};
+
+export function LinkedInContextCard({ useProfile, onUseProfileChange }: Props) {
   const [profile, setProfile] = useState<ComposioLinkedInProfileResponse | null>(null);
-  const [useProfile, setUseProfile] = useState(true);
 
   useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -57,11 +61,11 @@ export function LinkedInContextCard() {
   const profileImage = resolveProfileImage(profile);
   const initials = name
     ? name
-        .split(" ")
-        .map((segment) => segment[0] ?? "")
-        .join("")
-        .slice(0, 2)
-        .toUpperCase()
+      .split(" ")
+      .map((segment) => segment[0] ?? "")
+      .join("")
+      .slice(0, 2)
+      .toUpperCase()
     : "LI";
 
   if (!name && !headline && !profileImage) return null;
@@ -105,15 +109,17 @@ export function LinkedInContextCard() {
             <input
               type="checkbox"
               checked={useProfile}
-              onChange={() => setUseProfile((s) => !s)}
+              onChange={(event) => onUseProfileChange(event.target.checked)}
               className="h-4 w-4 rounded border border-border bg-background text-primary focus:ring-0"
             />
-            <span className="text-sm text-muted-foreground">Use LinkedIn profile as AI context</span>
+            <span className="text-sm font-bold text-foreground leading-none text-gray-400">
+              AI context
+            </span>
           </label>
         </div>
       </div>
 
-     
+
     </div>
   );
 }

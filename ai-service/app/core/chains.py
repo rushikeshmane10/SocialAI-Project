@@ -12,7 +12,7 @@ def get_tweet_chain(provider: str | None = None, model: str | None = None):
             ("system", TWEET_SYSTEM),
             (
                 "user",
-                "Write one tweet for X using the context below.\n\nTopic:\n{topic}\n\nTone to apply:\n{tone}\n\nCreator profile context:\n- Profession: {profession}\n- Audience: {audience}\n- Brand vibe: {vibe}\n\nRework base draft (if any):\n{rework_base_text}\n\nRework instructions (if any):\n{rework_instructions}\n\nOutput must be one high-quality tweet only.",
+                "Write one tweet for X using the context below.\n\nTopic:\n{topic}\n\nTone to apply:\n{tone}\n\nCreator profile context:\n- Profession: {profession}\n- Audience: {audience}\n- Brand vibe: {vibe}\n\nLinkedIn profile context:\n{linkedin_profile}\n\nReference template context:\n{template_context}\n\nRework base draft (if any):\n{rework_base_text}\n\nRework instructions (if any):\n{rework_instructions}\n\nOutput must be one high-quality tweet only.",
             ),
         ]
     )

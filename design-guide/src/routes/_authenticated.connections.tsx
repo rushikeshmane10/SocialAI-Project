@@ -3,6 +3,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Check, ExternalLink, AtSign, Globe } from "lucide-react";
+import xLogo from "../../public/commonImg/Screenshot 2026-07-22 114313.png"
+import linkDin from "../../public/commonImg/pngegg.png"
 import {
   completeConnection,
   fetchConnectionStatus,
@@ -125,125 +127,133 @@ function ConnectionsPage() {
       setBusy(null);
     }
   }
-
   const cards: {
     platform: ConnectionPlatform;
     name: string;
-    icon: typeof AtSign;
+    icon: string;
     connected: boolean;
     description: string;
   }[] = [
       {
-        platform: "twitter",
-        name: "Twitter / X",
-        icon: AtSign,
-        connected: twitter,
+        platform: "linkedin",
+        name: "LinkedIn",
+        icon: linkDin,
+        connected: linkedin,
         description: "Connect your Twitter account to publish posts directly.",
       },
       {
-        platform: "linkedin",
-        name: "LinkedIn",
-        icon: Globe,
-        connected: linkedin,
-        description: "Connect your LinkedIn account to share professional content.",
+        platform: "twitter",
+        name: "Twitter / X",
+        icon: xLogo,
+        connected: twitter,
+        description: "Connect your Twitter account to publish posts directly.",
       },
     ];
 
   return (
     <>
-      <PageHeader title="Social connections" />
-      <div className="flex-1 overflow-y-auto">
-        <div className="px-8 py-8 lg:px-12">
+  <div className="flex-1">
+  <div className="px-8 py-8 lg:px-12">
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+    >
+      <div className="mb-8">
+        <h2 className="text-2xl font-bold tracking-tight text-on-surface mb-2">
+          Connect your social media accounts
+        </h2>
+      </div>
+
+      {loadError ? (
+        <p
+          className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+          role="alert"
+        >
+          {loadError}
+        </p>
+      ) : null}
+      {actionError ? (
+        <p
+          className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+          role="alert"
+        >
+          {actionError}
+        </p>
+      ) : null}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {cards.map((conn, i) => (
           <motion.div
+            key={conn.platform}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
+            transition={{ delay: i * 0.06, duration: 0.3 }}
+            className="conn-card p-6 flex flex-col md:flex-row gap-6 items-start transition-all hover:-translate-y-1 h-full min-h-[180px]"
           >
-            <p className="mb-6 max-w-xl text-sm leading-relaxed text-muted-foreground">
-              Connect your social media accounts to publish content directly from one place.
-            </p>
-
-            {loadError ? (
-              <p
-                className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive"
-                role="alert"
-              >
-                {loadError}
-              </p>
-            ) : null}
-            {actionError ? (
-              <p
-                className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive"
-                role="alert"
-              >
-                {actionError}
-              </p>
-            ) : null}
-
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {cards.map((conn, i) => (
-                <motion.div
-                  key={conn.platform}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.06, duration: 0.3 }}
-                  className="group rounded-xl border border-border bg-card p-5 shadow-[var(--shadow-sm)] transition-all duration-150 hover:shadow-[var(--shadow-card)]"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-surface">
-                      <conn.icon className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-sm font-medium text-card-foreground">{conn.name}</h3>
-                        {conn.connected && (
-                          <span className="inline-flex items-center gap-1 rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                            <Check className="h-3 w-3" />
-                            Connected
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground">{conn.description}</p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={busy !== null || conn.connected}
-                      onClick={() => void onConnect(conn.platform)}
-                      className="flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-xs font-semibold text-primary-foreground shadow-[var(--shadow-sm)] transition-all duration-150 hover:shadow-[var(--shadow-card)] hover:brightness-110 disabled:opacity-40"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      {busy === conn.platform
-                        ? "Redirecting…"
-                        : `Connect ${conn.name.split("/")[0]?.trim() ?? conn.platform}`}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy !== null || conn.connected}
-                      onClick={() => void onVerify(conn.platform)}
-                      className="flex h-8 items-center rounded-lg border border-border px-3.5 text-xs font-medium text-foreground shadow-[var(--shadow-sm)] transition-all duration-150 hover:bg-accent disabled:opacity-40"
-                    >
-                      {busy === "verify" ? "Verifying…" : "Verify"}
-                    </button>
-                  </div>
-                </motion.div>
-              ))}
+            <div
+              className={`w-16 h-16 rounded-2xl flex items-center justify-center shrink-0 border border-outline-variant ${
+                conn.connected
+                  ? "bg-primary-container"
+                  : "bg-surface-container "
+              }`}
+            >
+              <img
+                src={conn.icon}
+                alt={conn.name}
+                className="h-8 w-8 object-contain"
+              />
             </div>
 
-            <div className="mt-8">
-              <button
-                type="button"
-                onClick={() => void navigate({ to: "/" })}
-                className="text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-              >
-                Back to generator
-              </button>
+            <div className="flex-1 space-y-4 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-base font-semibold text-on-surface truncate">
+                  {conn.name}
+                </h3>
+                {conn.connected ? (
+                  <span className="inline-flex items-center gap-1 text-primary bg-primary/10 px-2 py-1 rounded-full text-[11px] font-bold shrink-0">
+                    <Check className="h-3.5 w-3.5" />
+                    Connected
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-medium text-on-surface-variant bg-surface-container-high px-2 py-1 rounded-full shrink-0">
+                    Not Connected
+                  </span>
+                )}
+              </div>
+
+              <p className="text-sm text-on-surface-variant leading-relaxed">
+                {conn.description}
+              </p>
+
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={busy !== null || conn.connected}
+                  onClick={() => void onConnect(conn.platform)}
+                  className="conn-btn-shadow flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-xs font-semibold text-white transition-all hover:brightness-110 disabled:opacity-40"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  {busy === conn.platform
+                    ? "Redirecting…"
+                    : `Connect ${conn.name.split("/")[0]?.trim() ?? conn.platform}`}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy !== null || conn.connected}
+                  onClick={() => void onVerify(conn.platform)}
+                  className="flex h-9 items-center rounded-lg border border-outline-variant bg-surface-container-highest px-3.5 text-xs font-medium text-on-surface transition-colors hover:bg-surface-variant disabled:opacity-40"
+                >
+                  {busy === "verify" ? "Verifying…" : "Verify"}
+                </button>
+              </div>
             </div>
           </motion.div>
-        </div>
+        ))}
       </div>
+    </motion.div>
+  </div>
+</div>
     </>
   );
 }

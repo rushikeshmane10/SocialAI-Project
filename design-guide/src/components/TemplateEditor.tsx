@@ -6,17 +6,19 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initial?: Partial<TemplateModel> | null;
-  onSave: (template: { id: string; title: string; content: string }) => void;
+  onSave: (template: { id: string; title: string; content: string; type?: string | null }) => void;
 };
 
 export function TemplateEditor({ open, onOpenChange, initial, onSave }: Props) {
   const [title, setTitle] = useState(initial?.title || "");
   const [content, setContent] = useState(initial?.content || "");
+  const [type, setType] = useState<string | undefined>(initial?.type || "All");
 
   useEffect(() => {
     if (open) {
       setTitle(initial?.title || "");
       setContent(initial?.content || "");
+      setType(initial?.type || "All");
     }
   }, [open, initial]);
 
@@ -24,7 +26,7 @@ export function TemplateEditor({ open, onOpenChange, initial, onSave }: Props) {
 
   function handleSave() {
     const id = initial?.id || Math.random().toString(36).slice(2, 9);
-    onSave({ id, title: title.trim() || "Untitled template", content });
+    onSave({ id, title: title.trim() || "Untitled template", content, type });
     onOpenChange(false);
   }
 
@@ -47,6 +49,22 @@ export function TemplateEditor({ open, onOpenChange, initial, onSave }: Props) {
               className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground shadow-[var(--shadow-sm)]"
               placeholder="Template title"
             />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-foreground">Type</label>
+            <select
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground shadow-[var(--shadow-sm)]"
+            >
+              <option value="All">All</option>
+              <option value="Social Post">Social Post</option>
+              <option value="Announcement">Announcement</option>
+              <option value="Thread">Thread</option>
+              <option value="Article Intro">Article Intro</option>
+              <option value="Other">Other</option>
+            </select>
           </div>
 
           <div>

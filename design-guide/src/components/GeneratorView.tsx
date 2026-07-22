@@ -1,12 +1,13 @@
 import { PageHeader } from "@/components/PageHeader";
 import { TopicForm } from "@/components/TopicForm";
-import { LinkedInContextCard } from "@/components/LinkedInContextCard";
+import { loadLinkedInProfileFromLocalStorage, buildLinkedInProfileSummary } from "@/utils/linkedinProfile";
 import { VariationPickerModal } from "@/components/VariationPickerModal";
 import { SatisfactionPrompt } from "@/components/SatisfactionPrompt";
 import { TweetPreview } from "@/components/TweetPreview";
 import { SelectedPostDevicePreview } from "@/components/SelectedPostDevicePreview";
 import { StatusBanner } from "@/components/StatusBanner";
 import { useCallback, useEffect, useState } from "react";
+import type { TemplateModel } from "@/utils/templateStorage";
 import { motion } from "framer-motion";
 import { RotateCcw } from "lucide-react";
 import { publishPost } from "@/api/client";
@@ -48,6 +49,8 @@ export function GeneratorView() {
   const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
   const [waitingForGeneration, setWaitingForGeneration] = useState(false);
   const [llmSelection, setLlmSelection] = useState<LlmSelection>(DEFAULT_LLM_SELECTION);
+  const [selectedTemplate, setSelectedTemplate] = useState<TemplateModel | null>(null);
+  const [useLinkedInProfile, setUseLinkedInProfile] = useState(false);
   /** Shown on the preview device after picking a variation (matches selected draft). */
   const [selectedToneLabel, setSelectedToneLabel] = useState<string | null>(null);
   /** Preview-only image for the selected variant (not persisted). */
@@ -129,10 +132,13 @@ export function GeneratorView() {
       if (tones.length !== 2) {
         throw new Error("Please select exactly 2 tones to generate two drafts.");
       }
+      const profile = useLinkedInProfile ? loadLinkedInProfileFromLocalStorage() : null;
       const res = await withLoader(() =>
         generateMockPosts({
           topic,
           tones: [tones[0], tones[1]] as [string, string],
+          linkedinProfile: profile ? buildLinkedInProfileSummary(profile) : undefined,
+          templateContext: selectedTemplate?.content,
           modelProvider: llmSelection.modelProvider,
           modelName: llmSelection.modelName,
         }),
@@ -167,6 +173,7 @@ export function GeneratorView() {
       if (tones.length !== 2) {
         throw new Error("Please keep two tones selected before regenerating.");
       }
+      const profile = useLinkedInProfile ? loadLinkedInProfileFromLocalStorage() : null;
       const res = await withLoader(() =>
         generateMockPosts({
           topic: aiTopic.trim(),
@@ -175,6 +182,8 @@ export function GeneratorView() {
           reworkInstructions: instructions,
           sourcePostId: v.sourcePostId ?? postId ?? undefined,
           sourceVariationId: v.variation_id,
+          linkedinProfile: profile ? buildLinkedInProfileSummary(profile) : undefined,
+          templateContext: selectedTemplate?.content,
           modelProvider: llmSelection.modelProvider,
           modelName: llmSelection.modelName,
         }),
@@ -275,7 +284,7 @@ export function GeneratorView() {
         </button>
       </PageHeader>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1">
         <div className="px-8 py-8 lg:px-12">
           <div className="grid gap-8 lg:grid-cols-5">
             <motion.div
@@ -326,6 +335,10 @@ export function GeneratorView() {
                 isGenerating={genBusy || waitingForGeneration}
                 onTopicChange={setAiTopic}
                 onTonesChange={setAiTones}
+                selectedTemplate={selectedTemplate}
+                onSelectedTemplateChange={setSelectedTemplate}
+                useLinkedInProfile={useLinkedInProfile}
+                onUseLinkedInProfileChange={setUseLinkedInProfile}
                 onGenerate={() => void onGenerateAi()}
               />
 
